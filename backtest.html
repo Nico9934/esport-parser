@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESB Scout — Backtest</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080b10;
+  --surface: #0e1219;
+  --surface2: #141926;
+  --surface3: #1c2333;
+  --border: #1f2a3d;
+  --border2: #2a3a54;
+  --accent: #00e5a0;
+  --accent-dim: rgba(0,229,160,0.12);
+  --red: #ff4d6d;
+  --red-dim: rgba(255,77,109,0.12);
+  --amber: #ffb830;
+  --amber-dim: rgba(255,184,48,0.12);
+  --blue: #4da6ff;
+  --blue-dim: rgba(77,166,255,0.12);
+  --text: #c8d4e8;
+  --text-sub: #6a7d9a;
+  --text-muted: #3d4f68;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 14px; line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* grid background */
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: 0;
+  background-image:
+    linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+}
+
+.wrapper { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+/* ── HEADER ── */
+header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 2.5rem; flex-wrap: wrap; gap: 1rem; }
+.logo { display: flex; flex-direction: column; gap: 3px; }
+.logo-title { font-family: var(--mono); font-size: 1.4rem; font-weight: 600; letter-spacing: -0.02em; }
+.logo-title span { color: var(--accent); }
+.logo-sub { font-family: var(--mono); font-size: 0.6rem; color: var(--text-muted); letter-spacing: 0.15em; text-transform: uppercase; }
+.version-badge {
+  font-family: var(--mono); font-size: 0.58rem; padding: 4px 10px;
+  border: 1px solid var(--border2); border-radius: 4px;
+  color: var(--text-sub); letter-spacing: 0.08em;
+}
+
+/* ── NAVIGATION ── */
+.nav-links { display: flex; gap: 2px; }
+.nav-link {
+  font-family: var(--mono); font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 6px 12px; border-radius: 6px; background: transparent;
+  border: 1px solid var(--border2); color: var(--text-sub);
+  cursor: pointer; transition: all 0.2s; text-decoration: none;
+}
+.nav-link:hover { border-color: var(--accent); color: var(--accent); }
+.nav-link.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+/* ── PANELS ── */
+.panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem;
+}
+.panel-title {
+  font-family: var(--mono); font-size: 0.65rem; font-weight: 600;
+  color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase;
+  margin-bottom: 1.2rem; display: flex; align-items: center; gap: 8px;
+}
+.panel-title::before { content: '//'; color: var(--text-muted); }
+
+/* ── PARAMS GRID ── */
+.params-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+.param-item { display: flex; flex-direction: column; gap: 6px; }
+.param-label {
+  font-family: var(--mono); font-size: 0.6rem; color: var(--text-sub);
+  text-transform: uppercase; letter-spacing: 0.08em; display: flex; justify-content: space-between;
+}
+.param-label span { color: var(--accent); font-weight: 600; }
+input[type=range] {
+  width: 100%; accent-color: var(--accent); height: 4px; cursor: pointer;
+}
+.param-desc { font-size: 0.68rem; color: var(--text-muted); line-height: 1.4; }
+
+/* ── ODD SELECTOR ── */
+.odd-selector { display: flex; gap: 8px; flex-wrap: wrap; }
+.odd-btn {
+  font-family: var(--mono); font-size: 0.7rem; padding: 6px 14px;
+  border: 1px solid var(--border2); border-radius: 6px; background: transparent;
+  color: var(--text-sub); cursor: pointer; transition: all 0.15s; letter-spacing: 0.04em;
+}
+.odd-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.odd-btn:hover:not(.active) { border-color: var(--border2); color: var(--text); }
+
+/* ── RUN BUTTON ── */
+.run-area { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: 1.5rem; }
+.btn-run {
+  font-family: var(--mono); font-size: 0.78rem; font-weight: 600;
+  background: var(--accent); color: #000; border: none;
+  padding: 12px 28px; border-radius: 8px; cursor: pointer;
+  transition: all 0.15s; letter-spacing: 0.04em;
+}
+.btn-run:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-run:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; }
+.progress-wrap { flex: 1; min-width: 200px; }
+.progress-bar-bg {
+  background: var(--surface3); border-radius: 4px; height: 6px;
+  overflow: hidden; margin-bottom: 4px;
+}
+.progress-bar-fill {
+  height: 100%; background: var(--accent); border-radius: 4px;
+  transition: width 0.3s ease; width: 0%;
+}
+.progress-label { font-family: var(--mono); font-size: 0.6rem; color: var(--text-sub); }
+
+/* ── METRICS GRID ── */
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 1.5rem; }
+.metric-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px;
+}
+.metric-card.green { border-color: rgba(0,229,160,0.3); background: var(--accent-dim); }
+.metric-card.red { border-color: rgba(255,77,109,0.3); background: var(--red-dim); }
+.metric-card.amber { border-color: rgba(255,184,48,0.3); background: var(--amber-dim); }
+.metric-card.blue { border-color: rgba(77,166,255,0.3); background: var(--blue-dim); }
+.mc-label { font-family: var(--mono); font-size: 0.58rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+.mc-value { font-family: var(--mono); font-size: 1.4rem; font-weight: 600; color: var(--text); }
+.mc-value.green { color: var(--accent); }
+.mc-value.red { color: var(--red); }
+.mc-value.amber { color: var(--amber); }
+.mc-value.blue { color: var(--blue); }
+.mc-sub { font-size: 0.65rem; color: var(--text-muted); margin-top: 3px; }
+
+/* ── EQUITY CHART ── */
+#equityCanvas { width: 100%; height: 220px; display: block; }
+
+/* ── CONF TABLE ── */
+.conf-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.72rem; }
+.conf-table th {
+  text-align: left; padding: 8px 12px;
+  border-bottom: 1px solid var(--border2);
+  color: var(--text-sub); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.conf-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.conf-table tr:last-child td { border-bottom: none; }
+.conf-table tr:hover td { background: var(--surface3); }
+.pill {
+  display: inline-block; padding: 2px 10px; border-radius: 20px;
+  font-size: 0.6rem; font-weight: 600; letter-spacing: 0.04em;
+}
+.pill.vhigh { background: rgba(0,229,160,0.2); color: var(--accent); border: 1px solid rgba(0,229,160,0.4); }
+.pill.high  { background: rgba(0,229,160,0.1); color: #5dd9a8; border: 1px solid rgba(0,229,160,0.2); }
+.pill.mhigh { background: rgba(255,184,48,0.1); color: var(--amber); border: 1px solid rgba(255,184,48,0.2); }
+.pill.mlow  { background: rgba(255,184,48,0.07); color: #c8960f; border: 1px solid rgba(255,184,48,0.15); }
+.pill.low   { background: rgba(255,77,109,0.1); color: var(--red); border: 1px solid rgba(255,77,109,0.2); }
+
+.bar-wrap { display: flex; align-items: center; gap: 8px; }
+.mini-bar-bg { flex: 1; height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
+.mini-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.bar-pct { font-size: 0.65rem; min-width: 36px; text-align: right; }
+
+/* ── TRADES TABLE ── */
+.trades-wrap { max-height: 380px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+.trades-wrap::-webkit-scrollbar { width: 4px; }
+.trades-wrap::-webkit-scrollbar-track { background: var(--surface2); }
+.trades-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.trades-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+.trades-table th {
+  position: sticky; top: 0; background: var(--surface2);
+  padding: 8px 10px; text-align: left;
+  font-family: var(--mono); font-size: 0.58rem; color: var(--text-sub);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border2);
+}
+.trades-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
+.trades-table tr:hover td { background: var(--surface3); }
+.win-cell { color: var(--accent); font-weight: 600; }
+.loss-cell { color: var(--red); font-weight: 600; }
+.pass-cell { color: var(--text-muted); }
+
+/* ── INSIGHT BOXES ── */
+.insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.insight {
+  padding: 14px 16px; border-radius: 8px;
+  border-left: 3px solid;
+  background: var(--surface2);
+  font-size: 0.78rem; line-height: 1.6;
+}
+.insight.good { border-color: var(--accent); }
+.insight.warn { border-color: var(--amber); }
+.insight.bad  { border-color: var(--red); }
+.insight.info { border-color: var(--blue); }
+.insight-title { font-weight: 600; margin-bottom: 4px; font-size: 0.8rem; }
+.insight.good .insight-title { color: var(--accent); }
+.insight.warn .insight-title { color: var(--amber); }
+.insight.bad  .insight-title { color: var(--red); }
+.insight.info .insight-title { color: var(--blue); }
+.insight-body { color: var(--text-sub); }
+
+/* ── EMPTY STATE ── */
+.empty-state {
+  text-align: center; padding: 3rem;
+  font-family: var(--mono); font-size: 0.72rem; color: var(--text-muted);
+  line-height: 2;
+}
+.empty-state .big { font-size: 2rem; margin-bottom: 0.5rem; display: block; }
+
+/* ── LOG ── */
+.log-box {
+  font-family: var(--mono); font-size: 0.62rem; color: var(--text-sub);
+  background: var(--surface2); border-radius: 6px; padding: 10px 14px;
+  min-height: 28px; line-height: 1.8; border: 1px solid var(--border);
+}
+
+/* tabs */
+.tabs { display: flex; gap: 2px; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tab { font-family: var(--mono); font-size: 0.65rem; font-weight: 600; letter-spacing: 0.06em;
+  padding: 9px 18px; cursor: pointer; color: var(--text-muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.2s; text-transform: uppercase; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover:not(.active) { color: var(--text); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+<header>
+  <div class="logo">
+    <div class="logo-title">ESB<span>Scout</span> · Backtest</div>
+    <div class="logo-sub">Strategy simulator · ESports Battle FIFA 8min</div>
+  </div>
+  <div style="display: flex; gap: 1rem; align-items: flex-end;">
+    <div class="nav-links">
+      <a href="index.html" class="nav-link">📊 Análisis</a>
+      <a href="backtest.html" class="nav-link active">🔬 Backtest</a>
+      <a href="backtest-goles.html" class="nav-link">⚽ Backtest Goles</a>
+    </div>
+    <div class="version-badge">v1.0 · localhost:3000</div>
+  </div>
+</header>
+
+<!-- ── PARÁMETROS ── -->
+<div class="panel">
+  <div class="panel-title">Parámetros de estrategia</div>
+  <div class="params-grid">
+
+    <div class="param-item">
+      <div class="param-label">Diff mínima para apostar <span id="diffMinVal">8%</span></div>
+      <input type="range" id="diffMin" min="0" max="25" step="1" value="8">
+      <div class="param-desc">Diferencia de win% histórico entre favorito y rival</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Win rate mínimo favorito <span id="wrMinVal">45%</span></div>
+      <input type="range" id="wrMin" min="30" max="65" step="1" value="45">
+      <div class="param-desc">El favorito debe superar este win% histórico global</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Forma reciente mínima <span id="formMinVal">48%</span></div>
+      <input type="range" id="formMin" min="20" max="70" step="1" value="48">
+      <div class="param-desc">Win% en últimos ~30 partidos del favorito</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Edge mínimo vs odd <span id="edgeMinVal">3%</span></div>
+      <input type="range" id="edgeMin" min="0" max="15" step="1" value="3">
+      <div class="param-desc">Win% real debe superar la probabilidad implícita de la odd + este margen</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Bankroll inicial <span id="bankrollVal">$1,000</span></div>
+      <input type="range" id="bankrollSlider" min="100" max="5000" step="100" value="1000">
+      <div class="param-desc">Capital inicial para simular curva de capital</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Apuesta fija por operación <span id="betSizeVal">$100</span></div>
+      <input type="range" id="betSize" min="10" max="500" step="10" value="100">
+      <div class="param-desc">Monto fijo por apuesta (flat betting)</div>
+    </div>
+
+  </div>
+
+  <div style="margin-top: 1.2rem;">
+    <div class="param-label" style="margin-bottom: 8px;">Odd simulada <span id="oddDisplayVal">1.85</span></div>
+    <div class="odd-selector" id="oddSelector">
+      <button class="odd-btn" data-odd="1.52">1.52</button>
+      <button class="odd-btn" data-odd="1.65">1.65</button>
+      <button class="odd-btn active" data-odd="1.85">1.85</button>
+      <button class="odd-btn" data-odd="1.95">1.95</button>
+      <button class="odd-btn" data-odd="2.05">2.05</button>
+      <button class="odd-btn" data-odd="2.20">2.20</button>
+    </div>
+  </div>
+
+  <div class="run-area">
+    <button class="btn-run" id="runBtn" onclick="runBacktest()">▶ EJECUTAR BACKTEST</button>
+    <div class="progress-wrap" id="progressWrap" style="display:none">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+      <div class="progress-label" id="progressLabel">Iniciando...</div>
+    </div>
+  </div>
+  <div class="log-box" id="logBox" style="margin-top:10px">Listo. Configurá los parámetros y ejecutá el backtest.</div>
+</div>
+
+<!-- ── RESULTADOS ── -->
+<div id="resultsSection" class="hidden">
+
+  <!-- Métricas globales -->
+  <div class="metrics-grid" id="metricsGrid"></div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('equity')">📈 Curva capital</div>
+    <div class="tab" onclick="switchTab('confidence')">🎯 Por confianza</div>
+    <div class="tab" onclick="switchTab('trades')">📋 Operaciones</div>
+    <div class="tab" onclick="switchTab('insights')">💡 Insights</div>
+  </div>
+
+  <div id="tab-equity" class="tab-pane active">
+    <div class="panel">
+      <div class="panel-title">Curva de capital</div>
+      <canvas id="equityCanvas"></canvas>
+    </div>
+  </div>
+
+  <div id="tab-confidence" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">Rendimiento por nivel de confianza</div>
+      <table class="conf-table" id="confTable">
+        <thead><tr>
+          <th>Nivel</th><th>Apuestas</th><th>Win rate</th><th>ROI</th><th>Profit</th><th>Distribución</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-trades" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">Log de operaciones simuladas</div>
+      <div class="trades-wrap">
+        <table class="trades-table" id="tradesTable">
+          <thead><tr>
+            <th>#</th><th>Favorito</th><th>Rival</th><th>Confianza</th>
+            <th>Win%Fav</th><th>Forma</th><th>Diff</th><th>Odd</th><th>Resultado</th><th>P&L</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-insights" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">Análisis automático</div>
+      <div class="insights-grid" id="insightsGrid"></div>
+    </div>
+  </div>
+
+</div>
+
+</div><!-- /wrapper -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const PROXY = 'http://localhost:3000/proxy?url=';
+const ESB   = 'https://football.esportsbattle.com/api/participants';
+
+// ── STATE ──
+let simOdd = 1.85;
+let equityChart = null;
+
+// ── SLIDERS ──
+const sliders = [
+  { id:'diffMin',       out:'diffMinVal',     fmt: v=>`${v}%`   },
+  { id:'wrMin',         out:'wrMinVal',       fmt: v=>`${v}%`   },
+  { id:'formMin',       out:'formMinVal',     fmt: v=>`${v}%`   },
+  { id:'edgeMin',       out:'edgeMinVal',     fmt: v=>`${v}%`   },
+  { id:'bankrollSlider',out:'bankrollVal',    fmt: v=>`$${(+v).toLocaleString()}` },
+  { id:'betSize',       out:'betSizeVal',     fmt: v=>`$${v}`   },
+];
+sliders.forEach(s=>{
+  const el = document.getElementById(s.id);
+  const out = document.getElementById(s.out);
+  el.addEventListener('input', ()=>{ out.textContent = s.fmt(el.value); });
+});
+
+// ── ODD BUTTONS ──
+document.getElementById('oddSelector').querySelectorAll('.odd-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.odd-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    simOdd = parseFloat(btn.dataset.odd);
+    document.getElementById('oddDisplayVal').textContent = simOdd.toFixed(2);
+  });
+});
+
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i)=>{
+    const panes = ['equity','confidence','trades','insights'];
+    t.classList.toggle('active', panes[i]===name);
+  });
+  document.querySelectorAll('.tab-pane').forEach(p=>{
+    p.classList.toggle('active', p.id===`tab-${name}`);
+  });
+}
+
+function log(msg) {
+  document.getElementById('logBox').textContent = msg;
+}
+
+// Enviar logs al servidor para guardarlos en archivo
+async function sendLog(message, level = 'INFO') {
+  try {
+    await fetch('/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, level, type: 'backtest' })
+    });
+  } catch(e) {
+    // silenciar si falla
+  }
+}
+
+function setProgress(pct, label) {
+  document.getElementById('progressFill').style.width = pct+'%';
+  document.getElementById('progressLabel').textContent = label;
+}
+
+async function pFetch(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000); // Aumentado a 15 segundos
+  try {
+    const r = await fetch(PROXY + encodeURIComponent(url), { signal: controller.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── RECENT FORM ──
+async function getRecentForm(nickname) {
+  try {
+    const results = await Promise.all([1,2].map(p=>
+      pFetch(`${ESB}/${nickname}/tournaments?page=${p}`)
+    ));
+    const tournaments = results
+      .flatMap(r=>r.tournaments||[])
+      .filter(t=>t.status_id===4)
+      .slice(0,6);
+
+    if (!tournaments.length) return null;
+
+    const matchData = await Promise.all(
+      tournaments.map(t=>pFetch(`https://football.esportsbattle.com/api/tournaments/${t.id}/matches`))
+    );
+
+    const allMatches = matchData.flat().filter(m=>
+      m.participant1?.nickname===nickname || m.participant2?.nickname===nickname
+    );
+
+    let wins=0, losses=0, draws=0;
+    allMatches.forEach(m=>{
+      const isP1 = m.participant1?.nickname===nickname;
+      const hg = isP1?m.participant1.score:m.participant2.score;
+      const og = isP1?m.participant2.score:m.participant1.score;
+      if(hg>og)wins++;
+      else if(hg<og)losses++;
+      else draws++;
+    });
+    const total=wins+losses+draws;
+    return { recentWinPct: total>0?(wins/total*100):0, total };
+  } catch(e){ return null; }
+}
+
+// ── CONFIDENCE LOGIC (replica exacta del index.html) ──
+function getConfidence(favWr, rivWr, favForm, simOddLocal) {
+  const diff = Math.abs(favWr - rivWr);
+
+  let confCls, pct;
+  if(diff<3)       { confCls='low';   pct=0; }
+  else if(diff<6)  { confCls='mlow';  pct=0.03; }
+  else if(diff<8)  { confCls='mhigh'; pct=0.04; }
+  else if(diff<15) { confCls='high';  pct=0.05; }
+  else             { confCls='vhigh'; pct=0.06; }
+
+  // Ajuste por forma reciente
+  if(favForm && confCls!=='low') {
+    const formAlert = Math.abs(favForm.recentWinPct - favWr) > 15;
+    if(formAlert) {
+      if(confCls==='vhigh')      confCls='high';
+      else if(confCls==='high')  confCls='mhigh';
+      else if(confCls==='mhigh') confCls='mlow';
+      else                       { confCls='low'; pct=0; }
+    }
+  }
+
+  const labels = {vhigh:'MUY ALTA',high:'ALTA',mhigh:'MEDIA-ALTA',mlow:'MEDIA-BAJA',low:'BAJA'};
+  return { confCls, label: labels[confCls], pct, diff, pass: confCls==='low' };
+}
+
+// ── MAIN BACKTEST ──
+async function runBacktest() {
+  const params = {
+    diffMin:    parseFloat(document.getElementById('diffMin').value),
+    wrMin:      parseFloat(document.getElementById('wrMin').value),
+    formMin:    parseFloat(document.getElementById('formMin').value),
+    edgeMin:    parseFloat(document.getElementById('edgeMin').value),
+    bankroll:   parseFloat(document.getElementById('bankrollSlider').value),
+    betSize:    parseFloat(document.getElementById('betSize').value),
+    odd:        simOdd,
+  };
+
+  await sendLog('🎯 BACKTEST INICIADO ' + JSON.stringify(params));
+  console.log('🎯 BACKTEST INICIADO', params);
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('resultsSection').classList.add('hidden');
+
+  try {
+    // 1. Cargar jugadores
+    log('Cargando lista de jugadores...');
+    console.log('📥 Cargando jugadores... fetcheando page=1');
+    setProgress(2, 'Cargando jugadores de la API...');
+    const page1 = await pFetch(`${ESB}?page=1`);
+    console.log('  ✓ page1 OK, totalPages:', page1.totalPages, 'participants:', page1.participants?.length);
+    const totalPages = page1.totalPages || 1;  // TODAS las páginas, no limitado a 5
+    console.log('  ℹ totalPages:', totalPages, '(cargando TODOS los jugadores)');
+    let allPlayers = [...(page1.participants||[])];
+    for(let p=2; p<=totalPages; p++) {
+      console.log(`  → Fetcheando page ${p}/${totalPages}...`);
+      const d = await pFetch(`${ESB}?page=${p}`);
+      console.log(`    ✓ page ${p} OK, participants:`, d.participants?.length);
+      allPlayers.push(...(d.participants||[]));
+    }
+    console.log(`✅ Total players (sin filtrar): ${allPlayers.length}`);
+    await sendLog(`✅ Total players (sin filtrar): ${allPlayers.length}`);
+
+    // Filtrar jugadores con suficientes partidos y ordenar por actividad
+    allPlayers = allPlayers
+      .filter(p=>p.nickname && p.totalMatches>=200)
+      .sort((a,b)=>(b.totalMatches||0)-(a.totalMatches||0))
+      .slice(0,500);
+
+    console.log(`🔥 Jugadores filtrados (≥500 partidos, top 40): ${allPlayers.length}`);
+    await sendLog(`🔥 Jugadores filtrados (≥500 partidos, top 40): ${allPlayers.length}`);
+    log(`${allPlayers.length} jugadores activos encontrados.`);
+    const playersStr = allPlayers.map(p=>`${p.nickname}(${p.totalMatches}m)`).join(' | ');
+    console.log('👥 JUGADORES:', playersStr);
+    await sendLog('👥 JUGADORES: ' + playersStr);
+    log(`[JUGADORES] ${allPlayers.map(p=>`${p.nickname} (${p.totalMatches} partidos, torneos: ${p.totalTournaments}, torneosGanados: ${p.totalTournamentWin})`).join(' | ')}`);
+    setProgress(8, `${allPlayers.length} jugadores · descargando torneos...`);
+
+    // 2. Descargar torneos recientes por jugador (en lotes de 5)
+    console.log('📅 Descargando torneos de cada jugador...');
+    const playerData = {};
+    const BATCH = 5;
+    for(let i=0; i<allPlayers.length; i+=BATCH) {
+      const batch = allPlayers.slice(i, i+BATCH);
+      console.log(`  📍 Batch ${i/BATCH + 1}: descargando torneos de ${batch.map(p=>p.nickname).join(', ')}`);
+      await Promise.allSettled(batch.map(async p=>{
+        try {
+          console.log(`    → Fetcheando torneos de ${p.nickname}...`);
+          const [r1,r2] = await Promise.all([1,2].map(pg=>
+            pFetch(`${ESB}/${p.nickname}/tournaments?page=${pg}`)
+          ));
+          const tournaments = [r1,r2]
+            .flatMap(r=>r.tournaments||[])
+            .filter(t=>t.status_id===4)
+            .slice(0,6);
+
+          console.log(`      ✓ ${p.nickname}: ${tournaments.length} torneos activos`);
+          playerData[p.nickname] = {
+            info: p,
+            tournaments,
+            winRate: 0,  // Se calcula abajo desde los matches reales
+          };
+        } catch(e){ console.error(`    ❌ ${p.nickname}: ${e.message}`); }
+      }));
+      const pct = 8 + Math.round((i/allPlayers.length)*40);
+      setProgress(pct, `Torneos: ${Math.min(i+BATCH,allPlayers.length)}/${allPlayers.length} jugadores`);
+    }
+
+    console.log(`✅ Torneos descargados. playerData cargada para ${Object.keys(playerData).length} jugadores`);
+    await sendLog(`✅ Torneos descargados. playerData cargada para ${Object.keys(playerData).length} jugadores`);
+    log('Torneos descargados. Extrayendo partidos...');
+    const playerDataStr = Object.entries(playerData).map(([nick,pd])=>`${nick}(${pd.winRate.toFixed(1)}%)`).join(' | ');
+    console.log('📊 PLAYER_DATA:', playerDataStr);
+    await sendLog('📊 PLAYER_DATA: ' + playerDataStr);
+    log(`[PLAYER_DATA] ${Object.entries(playerData).map(([nick,pd])=>`${nick}: winRate=${pd.winRate.toFixed(1)}% torneos=${pd.tournaments.length}`).join(' | ')}`);
+    setProgress(50, 'Descargando partidos históricos...');
+
+    // 3. Descargar partidos de torneos únicos
+    console.log('🎮 Descargando matches de torneos...');
+    const allTournamentIds = new Set();
+    Object.values(playerData).forEach(pd=>{
+      pd.tournaments.forEach(t=>allTournamentIds.add(t.id));
+    });
+
+    const tournamentIds = [...allTournamentIds];
+    console.log(`  📍 Total de torneos únicos: ${tournamentIds.length}`);
+    const matchCache = {};
+    const BATCH2 = 1;
+    let matchesDownloaded = 0;
+    for(let i=0; i<tournamentIds.length; i+=BATCH2) {
+      const batch = tournamentIds.slice(i, i+BATCH2);
+      await Promise.allSettled(batch.map(async tid=>{
+        try {
+          const matches = await pFetch(`https://football.esportsbattle.com/api/tournaments/${tid}/matches`);
+          if(Array.isArray(matches)) {
+            matchCache[tid] = matches;
+            matchesDownloaded += matches.length;
+          }
+        } catch(e){ console.error(`    ❌ Torneo ${tid}: ${e.message}`); }
+      }));
+      if(i % 10 === 0) console.log(`  ✓ Procesados ${Math.min(i+BATCH2, tournamentIds.length)}/${tournamentIds.length} torneos (${matchesDownloaded} matches)`);
+      const pct = 50 + Math.round((i/tournamentIds.length)*25);
+      setProgress(pct, `Partidos: ${Math.min(i+BATCH2,tournamentIds.length)}/${tournamentIds.length} torneos`);
+    }
+
+    // 4. Construir historial por jugador (forma reciente = partidos reales)
+    console.log(`✅ Descarga de matches completada: ${Object.keys(matchCache).length} torneos, ${matchesDownloaded} matches totales`);
+    await sendLog(`✅ Descarga de matches: ${Object.keys(matchCache).length} torneos, ${matchesDownloaded} matches`);
+    log(`[MATCH_CACHE] ${Object.keys(matchCache).length} torneos con partidos cacheados. Total partidos: ${Object.values(matchCache).reduce((s,m)=>s+m.length,0)}`);
+
+    // FIX 1: Recalcular winRate desde matches reales (no torneos)
+    console.log('🔄 Recalculando win rates reales desde matches...');
+    Object.entries(playerData).forEach(([nick, pd]) => {
+      let w=0, l=0, d=0;
+      pd.tournaments.forEach(t => {
+        (matchCache[t.id]||[]).forEach(m => {
+          const isP1 = m.participant1?.nickname === nick;
+          const isP2 = m.participant2?.nickname === nick;
+          if(!isP1 && !isP2) return;
+          const hg = isP1 ? m.participant1.score : m.participant2.score;
+          const og = isP1 ? m.participant2.score : m.participant1.score;
+          if(hg>og) w++; else if(hg<og) l++; else d++;
+        });
+      });
+      const tot = w+l+d;
+      pd.winRate = tot>0 ? (w/tot*100) : 0;
+    });
+    const playerDataWR = Object.entries(playerData).map(([nick,pd])=>`${nick}(${pd.winRate.toFixed(1)}%)`).join(' | ');
+    console.log('✅ Win rates recalculados:', playerDataWR);
+    await sendLog('✅ Win rates recalculados: ' + playerDataWR);
+
+    console.log('📊 Calculando forma reciente de cada jugador...');
+    log('Calculando forma reciente...');
+    setProgress(76, 'Calculando forma reciente de cada jugador...');
+
+    const recentFormCache = {};
+    Object.entries(playerData).forEach(([nick, pd])=>{
+      const myMatches = [];
+      pd.tournaments.forEach(t=>{
+        const tm = matchCache[t.id]||[];
+        tm.forEach(m=>{
+          if(m.participant1?.nickname===nick || m.participant2?.nickname===nick)
+            myMatches.push(m);
+        });
+      });
+      const last30 = myMatches.slice(0,30);
+      let w=0,l=0,d=0;
+      last30.forEach(m=>{
+        const isP1=m.participant1?.nickname===nick;
+        const hg=isP1?m.participant1.score:m.participant2.score;
+        const og=isP1?m.participant2.score:m.participant1.score;
+        if(hg>og)w++;else if(hg<og)l++;else d++;
+      });
+      const tot=w+l+d;
+      recentFormCache[nick]={recentWinPct:tot>0?(w/tot*100):0,total:tot};
+      console.log(`  ✓ ${nick}: ${recentFormCache[nick].recentWinPct.toFixed(1)}% WR en ${tot} últimos partidos`);
+    });
+
+    console.log('✅ Forma reciente calculada para todos los jugadores');
+    log(`[FORMA_RECIENTE] ${Object.entries(recentFormCache).map(([nick,f])=>`${nick}: ${f.recentWinPct.toFixed(1)}% (${f.total} partidos)`).join(' | ')}`);
+
+    // 5. Construir pares de partidos únicos para simular
+    console.log('🎯 Construyendo pares de partidos para simular...');
+    console.log('  📊 playerData keys:', Object.keys(playerData).join(', '));
+    log('Simulando estrategia...');
+    setProgress(80, 'Simulando apuestas...');
+
+    const simMatches = [];
+    const seenMatchIds = new Set();
+    let processedMatches = 0, discarded = 0;
+    const discardReasons = { noNick: 0, notInPlayerData: 0, isDupe: 0, isDraw: 0, other: 0 };
+    const foundNicknames = new Set();
+
+    outer: for(const matches of Object.values(matchCache)) {
+      for(const m of matches) {
+        processedMatches++;
+        const n1=m.participant1?.nickname;
+        const n2=m.participant2?.nickname;
+        if(n1) foundNicknames.add(n1);
+        if(n2) foundNicknames.add(n2);
+
+        if(!n1||!n2) { discarded++; discardReasons.noNick++; continue; }
+        if(!playerData[n1]||!playerData[n2]) {
+          discarded++;
+          discardReasons.notInPlayerData++;
+          continue;
+        }
+
+        // Dedup por ID de partido (no por par de jugadores)
+        const matchId = m.id || `${n1}|${n2}|${m.participant1.score}|${m.participant2.score}`;
+        if(seenMatchIds.has(matchId)) { discarded++; discardReasons.isDupe++; continue; }
+        seenMatchIds.add(matchId);
+
+        const s1=m.participant1.score, s2=m.participant2.score;
+        const realWinner = s1>s2?n1:s2>s1?n2:null;
+        if(realWinner===null) { discarded++; discardReasons.isDraw++; continue; } // empate real, skip
+
+        // Usar win rate de partidos reales (recentFormCache) en vez de torneos ganados
+        const wr1 = recentFormCache[n1]?.recentWinPct ?? playerData[n1].winRate;
+        const wr2 = recentFormCache[n2]?.recentWinPct ?? playerData[n2].winRate;
+
+        simMatches.push({ p1:n1, p2:n2, realWinner, wr1, wr2, date: m.date });
+        if(simMatches.length >= 1500) break outer;
+      }
+    }
+
+    console.log(`✅ simMatches construida: ${simMatches.length} partidos válidos (procesados ${processedMatches}, descartados ${discarded})`);
+    await sendLog(`✅ simMatches: ${simMatches.length} partidos válidos`);
+    console.log('🔍 Razones de descarte:', discardReasons);
+    await sendLog(`🔍 Descarte: noNick=${discardReasons.noNick} notInPlayerData=${discardReasons.notInPlayerData} isDupe=${discardReasons.isDupe} isDraw=${discardReasons.isDraw}`);
+    console.log(`   👥 Nicknames encontrados: ${foundNicknames.size}, en playerData: ${Object.keys(playerData).length}`);
+
+    console.log('📋 SIM_MATCHES (primeros 10):', simMatches.slice(0, 10).map(m=>`${m.p1}(${m.wr1.toFixed(0)}%) vs ${m.p2}(${m.wr2.toFixed(0)}%) → ${m.realWinner}`).join(' | '));
+    log(`${simMatches.length} partidos únicos encontrados. Aplicando filtros...`);
+    if(simMatches.length > 0) {
+      log(`[SIM_MATCHES muestra] ${simMatches.slice(0,5).map(m=>`${m.p1}(${m.wr1.toFixed(1)}%) vs ${m.p2}(${m.wr2.toFixed(1)}%) → ganó: ${m.realWinner}`).join(' | ')}`);
+    } else {
+      console.error('[SIM_MATCHES] ❌ VACÍO — razón principal:', discardReasons.notInPlayerData > 0 ? `${discardReasons.notInPlayerData} partidos descartados porque los jugadores NO están en playerData` : 'otro');
+      log('[SIM_MATCHES] ⚠ VACÍO — ningún partido cumple las condiciones de playerData (ambos jugadores deben estar en playerData)');
+    }
+    setProgress(88, `Evaluando ${simMatches.length} partidos...`);
+
+    // 6. Aplicar la estrategia a cada partido
+    console.log('⚙️ Aplicando estrategia y filtros...');
+    const impliedProb = 1/params.odd*100;
+    const trades = [];
+    let bankroll = params.bankroll;
+    const equityCurve = [bankroll];
+    let filtered = 0, passed = 0;
+
+    simMatches.forEach((match, idx)=>{
+      const {p1,p2,realWinner,wr1,wr2}=match;
+      const favNick=wr1>=wr2?p1:p2;
+      const rivNick=wr1>=wr2?p2:p1;
+      const favWr=wr1>=wr2?wr1:wr2;
+      const rivWr=wr1>=wr2?wr2:wr1;
+      const diff=favWr-rivWr;
+      const favForm=recentFormCache[favNick]||null;
+
+      // ── FILTROS DE LA ESTRATEGIA ──
+      if(diff < params.diffMin) { filtered++; return; }           // diff histórica insuficiente
+      if(favWr < params.wrMin) { filtered++; return; }            // win rate absoluto bajo
+      if(favForm && favForm.recentWinPct < params.formMin) { filtered++; return; } // forma reciente baja
+      if(favWr < impliedProb + params.edgeMin) { filtered++; return; } // sin edge vs la odd
+
+      const conf = getConfidence(favWr, rivWr, favForm, params.odd);
+      if(conf.pass) { filtered++; return; }
+
+      passed++;
+      const won = realWinner===favNick;
+      const profit = won ? params.betSize*(params.odd-1) : -params.betSize;
+      bankroll += profit;
+
+      trades.push({
+        date: match.date ? new Date(match.date).toISOString().split('T')[0] : '—',
+        favNick, rivNick, confCls:conf.confCls, confLabel:conf.label,
+        favWr, rivWr, diff,
+        recentForm: favForm?.recentWinPct??null,
+        odd: params.odd, won, profit,
+        bankrollAfter: bankroll,
+      });
+      equityCurve.push(bankroll);
+
+      if(idx < 5) console.log(`  🎲 ${favNick} vs ${rivNick}: diff=${diff.toFixed(1)}% wr=${favWr.toFixed(1)}% forma=${favForm?.recentWinPct.toFixed(0)}% → ${won?'✅ WIN':'❌ LOSS'} $${profit.toFixed(0)}`);
+    });
+
+    console.log(`✅ Estrategia aplicada: ${trades.length} trades ejecutados, ${filtered} partidos descartados por filtros`);
+    setProgress(100, `Simulación completa · ${trades.length} apuestas`);
+    log(`✓ Backtest completo: ${trades.length} apuestas simuladas de ${simMatches.length} partidos analizados.`);
+    log(`[PARAMS usados] diffMin=${params.diffMin} wrMin=${params.wrMin} formMin=${params.formMin} edgeMin=${params.edgeMin} odd=${params.odd} betSize=${params.betSize}`);
+    if(trades.length > 0) {
+      const wins = trades.filter(t=>t.won).length;
+      const totalProfit = trades.reduce((s,t)=>s+t.profit,0);
+      const roi = (totalProfit / (trades.length * params.betSize) * 100);
+      const resultStr = `🎯 RESULTADO: ${wins}W/${trades.length-wins}L (${(wins/trades.length*100).toFixed(1)}%WR) Profit=$${totalProfit.toFixed(0)} ROI=${roi.toFixed(1)}%`;
+      console.log(resultStr);
+      await sendLog(resultStr);
+      log(`[RESUMEN] ${wins}W / ${trades.length-wins}L · Profit: ${totalProfit>=0?'+':''}$${totalProfit.toFixed(0)} · Bankroll final: $${Math.round(equityCurve[equityCurve.length-1]).toLocaleString()}`);
+    } else {
+      console.error('❌ NINGÚN TRADE EJECUTADO');
+      await sendLog('❌ NINGÚN TRADE EJECUTADO');
+      log('[TRADES] ⚠ VACÍO — ningún partido pasó los filtros. Revisá los parámetros (diffMin, wrMin, edgeMin).');
+    }
+    renderResults(trades, equityCurve, params, simMatches.length);
+
+  } catch(e) {
+    console.error('❌ ERROR EN BACKTEST:', e);
+    await sendLog('❌ ERROR: ' + e.message, 'ERROR');
+    log(`Error: ${e.message}`);
+    setProgress(0,'Error');
+  } finally {
+    btn.disabled = false;
+    console.log('🏁 Backtest finalizado');
+    await sendLog('🏁 Backtest finalizado');
+    await sendLog(`📄 Logs guardados en: /logs`, 'INFO');
+  }
+}
+
+// ── DEBUG DUMP ──
+function renderDebugDump({ allPlayers, playerData, recentFormCache, simMatches, trades, params, equityCurve }) {
+  document.getElementById('resultsSection').classList.remove('hidden');
+
+  const lines = [];
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push('PARAMS');
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push(JSON.stringify(params, null, 2));
+
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push(`JUGADORES CARGADOS (${allPlayers.length})`);
+  lines.push('═══════════════════════════════════════════════════════════');
+  allPlayers.forEach(p => {
+    const pd = playerData[p.nickname];
+    lines.push(`  ${p.nickname}`);
+    lines.push(`    totalMatches: ${p.totalMatches}  totalWin: ${p.totalWin||'N/A'}  totalTournaments: ${p.totalTournaments}  totalTournamentWin: ${p.totalTournamentWin}`);
+    if(pd) lines.push(`    winRate calculado: ${pd.winRate.toFixed(2)}%  torneos en cache: ${pd.tournaments.length}`);
+  });
+
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push('FORMA RECIENTE (recentFormCache)');
+  lines.push('═══════════════════════════════════════════════════════════');
+  Object.entries(recentFormCache).forEach(([nick, f]) => {
+    lines.push(`  ${nick}: ${f.recentWinPct.toFixed(1)}% de win (${f.total} partidos usados)`);
+  });
+
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push(`SIM_MATCHES (${simMatches.length} partidos — primeros 30)`);
+  lines.push('═══════════════════════════════════════════════════════════');
+  simMatches.slice(0, 30).forEach((m, i) => {
+    lines.push(`  #${i+1}  ${m.p1}(${m.wr1.toFixed(1)}%) vs ${m.p2}(${m.wr2.toFixed(1)}%) → ganó: ${m.realWinner}`);
+  });
+  if(simMatches.length === 0) lines.push('  ⚠ SIM_MATCHES VACÍO');
+
+  lines.push('');
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push(`TRADES EJECUTADOS (${trades.length})`);
+  lines.push('═══════════════════════════════════════════════════════════');
+  if(trades.length === 0) {
+    lines.push('  ⚠ NINGÚN TRADE — todos los partidos fueron filtrados');
+    lines.push(`  Filtros: diff>=${params.diffMin}  wr>=${params.wrMin}  forma>=${params.formMin}  edge>=${params.edgeMin}`);
+  } else {
+    trades.forEach((t, i) => {
+      lines.push(`  #${i+1}  ${t.favNick} vs ${t.rivNick}  favWr=${t.favWr.toFixed(1)}%  rivWr=${t.rivWr.toFixed(1)}%  diff=${t.diff.toFixed(1)}%  forma=${t.recentForm!==null?t.recentForm.toFixed(0)+'%':'—'}  conf=${t.confCls}  → ${t.won?'WIN':'LOSS'}  profit=${t.profit>=0?'+':''}$${t.profit.toFixed(0)}  bankroll=$${Math.round(t.bankrollAfter).toLocaleString()}`);
+    });
+  }
+
+  const dump = lines.join('\n');
+  document.getElementById('metricsGrid').innerHTML = `
+    <div style="grid-column:1/-1">
+      <div style="font-size:0.72rem;color:#6a7d9a;margin-bottom:8px;font-family:monospace">// DEBUG DUMP — datos crudos del backtest</div>
+      <textarea readonly style="width:100%;height:600px;background:#0d0f14;color:#a8ff78;font-family:'IBM Plex Mono',monospace;font-size:0.75rem;padding:14px;border:1px solid #2a3040;border-radius:8px;resize:vertical;outline:none;">${dump}</textarea>
+    </div>`;
+
+  switchTab('equity');
+  document.getElementById('resultsSection').scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+// ── RENDER (desactivado temporalmente) ──
+function renderResults(trades, equityCurve, params, totalAnalyzed) {
+  document.getElementById('resultsSection').classList.remove('hidden');
+
+  const wins = trades.filter(t=>t.won).length;
+  const losses = trades.filter(t=>!t.won).length;
+  const winRate = trades.length>0?(wins/trades.length*100):0;
+  const totalProfit = trades.reduce((s,t)=>s+t.profit,0);
+  const invested = trades.length*params.betSize;
+  const roi = invested>0?(totalProfit/invested*100):0;
+  const passRate = totalAnalyzed>0?((totalAnalyzed-trades.length)/totalAnalyzed*100):0;
+
+  // Drawdown máximo
+  let peak=params.bankroll, maxDD=0;
+  equityCurve.forEach(v=>{ if(v>peak)peak=v; const dd=(peak-v)/peak*100; if(dd>maxDD)maxDD=dd; });
+
+  // Métricas
+  const roiClass = roi>=0?'green':'red';
+  const wrClass  = winRate>=52?'green':winRate>=45?'amber':'red';
+  document.getElementById('metricsGrid').innerHTML = `
+    <div class="metric-card ${roiClass}">
+      <div class="mc-label">ROI simulado</div>
+      <div class="mc-value ${roiClass}">${roi>=0?'+':''}${roi.toFixed(1)}%</div>
+      <div class="mc-sub">${totalProfit>=0?'+':''}$${totalProfit.toFixed(0)} sobre $${invested.toLocaleString()}</div>
+    </div>
+    <div class="metric-card ${wrClass}">
+      <div class="mc-label">Win rate</div>
+      <div class="mc-value ${wrClass}">${winRate.toFixed(1)}%</div>
+      <div class="mc-sub">${wins}W / ${losses}L de ${trades.length} apuestas</div>
+    </div>
+    <div class="metric-card blue">
+      <div class="mc-label">Apuestas ejecutadas</div>
+      <div class="mc-value blue">${trades.length}</div>
+      <div class="mc-sub">${passRate.toFixed(0)}% de partidos descartados</div>
+    </div>
+    <div class="metric-card ${maxDD>20?'red':maxDD>10?'amber':'green'}">
+      <div class="mc-label">Drawdown máximo</div>
+      <div class="mc-value ${maxDD>20?'red':maxDD>10?'amber':'green'}">${maxDD.toFixed(1)}%</div>
+      <div class="mc-sub">Peor racha simulada</div>
+    </div>
+    <div class="metric-card">
+      <div class="mc-label">Bankroll final</div>
+      <div class="mc-value ${equityCurve[equityCurve.length-1]>=params.bankroll?'green':'red'}">
+        $${Math.round(equityCurve[equityCurve.length-1]).toLocaleString()}
+      </div>
+      <div class="mc-sub">Inicial: $${params.bankroll.toLocaleString()}</div>
+    </div>
+    <div class="metric-card">
+      <div class="mc-label">Odd simulada</div>
+      <div class="mc-value">${params.odd.toFixed(2)}</div>
+      <div class="mc-sub">Prob. implícita: ${(100/params.odd).toFixed(1)}%</div>
+    </div>
+  `;
+
+  // ── EQUITY CHART (desactivado) ──
+  // Gráfico deshabilitado - los datos se muestran en otras vistas
+
+  // ── CONF TABLE ──
+  const confGroups = {vhigh:{l:'MUY ALTA',w:0,t:0,profit:0},high:{l:'ALTA',w:0,t:0,profit:0},mhigh:{l:'MEDIA-ALTA',w:0,t:0,profit:0},mlow:{l:'MEDIA-BAJA',w:0,t:0,profit:0}};
+  trades.forEach(t=>{
+    const g=confGroups[t.confCls];
+    if(!g)return;
+    g.t++; g.profit+=t.profit; if(t.won)g.w++;
+  });
+  const tbody = document.querySelector('#confTable tbody');
+  tbody.innerHTML = Object.entries(confGroups).filter(([,g])=>g.t>0).map(([cls,g])=>{
+    const wr=g.t>0?(g.w/g.t*100):0;
+    const roi=g.t>0?(g.profit/(g.t*params.betSize)*100):0;
+    const pct=trades.length>0?(g.t/trades.length*100):0;
+    const barColor=wr>=52?'#00e5a0':wr>=45?'#ffb830':'#ff4d6d';
+    return `<tr>
+      <td><span class="pill ${cls}">${g.l}</span></td>
+      <td>${g.t}</td>
+      <td>
+        <div class="bar-wrap">
+          <div class="mini-bar-bg"><div class="mini-bar-fill" style="width:${wr}%;background:${barColor}"></div></div>
+          <span class="bar-pct" style="color:${barColor}">${wr.toFixed(1)}%</span>
+        </div>
+      </td>
+      <td style="color:${roi>=0?'#00e5a0':'#ff4d6d'}">${roi>=0?'+':''}${roi.toFixed(1)}%</td>
+      <td style="color:${g.profit>=0?'#00e5a0':'#ff4d6d'}">${g.profit>=0?'+':''}$${g.profit.toFixed(0)}</td>
+      <td>
+        <div class="bar-wrap">
+          <div class="mini-bar-bg"><div class="mini-bar-fill" style="width:${pct}%;background:#4da6ff"></div></div>
+          <span class="bar-pct" style="color:#4da6ff">${pct.toFixed(0)}%</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // ── TRADES LOG ──
+  const tradesTbody = document.querySelector('#tradesTable tbody');
+  tradesTbody.innerHTML = trades.slice().reverse().map((t,i)=>`
+    <tr>
+      <td style="color:var(--text-muted)">${trades.length-i}</td>
+      <td>${t.favNick}</td>
+      <td style="color:var(--text-sub)">${t.rivNick}</td>
+      <td><span class="pill ${t.confCls}">${t.confLabel}</span></td>
+      <td>${t.favWr.toFixed(1)}%</td>
+      <td>${t.recentForm!==null?t.recentForm.toFixed(0)+'%':'—'}</td>
+      <td>+${t.diff.toFixed(1)}%</td>
+      <td>${t.odd}</td>
+      <td class="${t.won?'win-cell':'loss-cell'}">${t.won?'WIN':'LOSS'}</td>
+      <td class="${t.profit>=0?'win-cell':'loss-cell'}">${t.profit>=0?'+':''}$${t.profit.toFixed(0)}</td>
+    </tr>`).join('');
+
+  // ── INSIGHTS ──
+  const insights = [];
+  const bestConf = Object.entries(confGroups).filter(([,g])=>g.t>=5).sort((a,b)=>{
+    const roiA=a[1].t>0?(a[1].profit/(a[1].t*params.betSize)*100):0;
+    const roiB=b[1].t>0?(b[1].profit/(b[1].t*params.betSize)*100):0;
+    return roiB-roiA;
+  });
+
+  if(roi>0) insights.push({type:'good',title:`ROI positivo: +${roi.toFixed(1)}%`,body:`Con estos parámetros, la estrategia hubiera generado $${totalProfit.toFixed(0)} sobre ${trades.length} apuestas históricas. Eso no garantiza el futuro, pero es una señal válida.`});
+  else insights.push({type:'bad',title:`ROI negativo: ${roi.toFixed(1)}%`,body:`Con estos parámetros la estrategia pierde dinero en datos históricos. Probá subir los filtros de win rate mínimo o forma reciente para encontrar un subset rentable.`});
+
+  if(passRate>70) insights.push({type:'good',title:`${passRate.toFixed(0)}% de partidos descartados`,body:`Los filtros son selectivos: solo apostás 1 de cada ${Math.round(100/(100-passRate))} partidos. Menos apuestas con más calidad suele ser mejor que apostar todo.`});
+
+  if(bestConf.length>0){
+    const [bestCls,bestG]=bestConf[0];
+    const bRoi=bestG.t>0?(bestG.profit/(bestG.t*params.betSize)*100):0;
+    if(bRoi>0) insights.push({type:'info',title:`Confianza "${bestG.l}" es la más rentable`,body:`ROI ${bRoi.toFixed(1)}% con ${bestG.t} apuestas. Considerá apostar únicamente en ese nivel para maximizar la selectividad.`});
+  }
+
+  if(maxDD>25) insights.push({type:'warn',title:`Drawdown de ${maxDD.toFixed(0)}% — riesgo alto`,body:`En algún momento del backtest el capital cayó ${maxDD.toFixed(0)}% desde el máximo. Con flat bet de $${params.betSize} y $${params.bankroll} de bankroll, una mala racha puede ser devastadora. Considerá reducir el tamaño de la apuesta.`});
+
+  const avgDiff=trades.length>0?(trades.reduce((s,t)=>s+t.diff,0)/trades.length):0;
+  insights.push({type:'info',title:`Diff promedio de las apuestas ejecutadas: ${avgDiff.toFixed(1)}%`,body:`Los partidos donde apostás tienen una diferencia media de ${avgDiff.toFixed(1)} puntos. Jugá con el slider "Diff mínima" para ver cómo cambia el ROI al ser más o menos selectivo.`});
+
+  document.getElementById('insightsGrid').innerHTML = insights.map(ins=>`
+    <div class="insight ${ins.type}">
+      <div class="insight-title">${ins.title}</div>
+      <div class="insight-body">${ins.body}</div>
+    </div>`).join('');
+
+  switchTab('equity');
+  document.getElementById('resultsSection').scrollIntoView({behavior:'smooth', block:'start'});
+}
+</script>
+</body>
+</html>

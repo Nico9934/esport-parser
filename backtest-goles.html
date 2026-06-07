@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ESB Scout — Backtest Goles</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080b10;
+  --surface: #0e1219;
+  --surface2: #141926;
+  --surface3: #1c2333;
+  --border: #1f2a3d;
+  --border2: #2a3a54;
+  --accent: #00e5a0;
+  --accent-dim: rgba(0,229,160,0.12);
+  --red: #ff4d6d;
+  --red-dim: rgba(255,77,109,0.12);
+  --amber: #ffb830;
+  --amber-dim: rgba(255,184,48,0.12);
+  --blue: #4da6ff;
+  --blue-dim: rgba(77,166,255,0.12);
+  --text: #c8d4e8;
+  --text-sub: #6a7d9a;
+  --text-muted: #3d4f68;
+  --mono: 'IBM Plex Mono', monospace;
+  --sans: 'IBM Plex Sans', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: var(--sans); font-size: 14px; line-height: 1.6;
+  min-height: 100vh;
+}
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: 0;
+  background-image:
+    linear-gradient(rgba(0,229,160,0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,229,160,0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  pointer-events: none;
+}
+.wrapper { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 2.5rem; flex-wrap: wrap; gap: 1rem; }
+.logo { display: flex; flex-direction: column; gap: 3px; }
+.logo-title { font-family: var(--mono); font-size: 1.4rem; font-weight: 600; letter-spacing: -0.02em; }
+.logo-title span { color: var(--accent); }
+.logo-sub { font-family: var(--mono); font-size: 0.6rem; color: var(--text-muted); letter-spacing: 0.15em; text-transform: uppercase; }
+.version-badge {
+  font-family: var(--mono); font-size: 0.58rem; padding: 4px 10px;
+  border: 1px solid var(--border2); border-radius: 4px;
+  color: var(--text-sub); letter-spacing: 0.08em;
+}
+.nav-links { display: flex; gap: 2px; }
+.nav-link {
+  font-family: var(--mono); font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 6px 12px; border-radius: 6px; background: transparent;
+  border: 1px solid var(--border2); color: var(--text-sub);
+  cursor: pointer; transition: all 0.2s; text-decoration: none;
+}
+.nav-link:hover { border-color: var(--accent); color: var(--accent); }
+.nav-link.active { background: var(--accent); color: #000; border-color: var(--accent); }
+
+.panel {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1.5rem; margin-bottom: 1.5rem;
+}
+.panel-title {
+  font-family: var(--mono); font-size: 0.65rem; font-weight: 600;
+  color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase;
+  margin-bottom: 1.2rem; display: flex; align-items: center; gap: 8px;
+}
+.panel-title::before { content: '//'; color: var(--text-muted); }
+
+.params-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+.param-item { display: flex; flex-direction: column; gap: 6px; }
+.param-label {
+  font-family: var(--mono); font-size: 0.6rem; color: var(--text-sub);
+  text-transform: uppercase; letter-spacing: 0.08em; display: flex; justify-content: space-between;
+}
+.param-label span { color: var(--accent); font-weight: 600; }
+input[type=range] { width: 100%; accent-color: var(--accent); height: 4px; cursor: pointer; }
+.param-desc { font-size: 0.68rem; color: var(--text-muted); line-height: 1.4; }
+
+.line-selector { display: flex; gap: 8px; flex-wrap: wrap; }
+.line-btn {
+  font-family: var(--mono); font-size: 0.75rem; padding: 7px 18px;
+  border: 1px solid var(--border2); border-radius: 6px; background: transparent;
+  color: var(--text-sub); cursor: pointer; transition: all 0.15s; letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.line-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.line-btn:hover:not(.active) { border-color: var(--border2); color: var(--text); }
+
+.odd-selector { display: flex; gap: 8px; flex-wrap: wrap; }
+.odd-btn {
+  font-family: var(--mono); font-size: 0.7rem; padding: 6px 14px;
+  border: 1px solid var(--border2); border-radius: 6px; background: transparent;
+  color: var(--text-sub); cursor: pointer; transition: all 0.15s; letter-spacing: 0.04em;
+}
+.odd-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+.odd-btn:hover:not(.active) { border-color: var(--border2); color: var(--text); }
+
+.run-area { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: 1.5rem; }
+.btn-run {
+  font-family: var(--mono); font-size: 0.78rem; font-weight: 600;
+  background: var(--accent); color: #000; border: none;
+  padding: 12px 28px; border-radius: 8px; cursor: pointer;
+  transition: all 0.15s; letter-spacing: 0.04em;
+}
+.btn-run:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.btn-run:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; }
+.progress-wrap { flex: 1; min-width: 200px; }
+.progress-bar-bg { background: var(--surface3); border-radius: 4px; height: 6px; overflow: hidden; margin-bottom: 4px; }
+.progress-bar-fill { height: 100%; background: var(--accent); border-radius: 4px; transition: width 0.3s ease; width: 0%; }
+.progress-label { font-family: var(--mono); font-size: 0.6rem; color: var(--text-sub); }
+
+.metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 1.5rem; }
+.metric-card {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px;
+}
+.metric-card.green { border-color: rgba(0,229,160,0.3); background: var(--accent-dim); }
+.metric-card.red { border-color: rgba(255,77,109,0.3); background: var(--red-dim); }
+.metric-card.amber { border-color: rgba(255,184,48,0.3); background: var(--amber-dim); }
+.metric-card.blue { border-color: rgba(77,166,255,0.3); background: var(--blue-dim); }
+.mc-label { font-family: var(--mono); font-size: 0.58rem; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+.mc-value { font-family: var(--mono); font-size: 1.4rem; font-weight: 600; color: var(--text); }
+.mc-value.green { color: var(--accent); }
+.mc-value.red { color: var(--red); }
+.mc-value.amber { color: var(--amber); }
+.mc-value.blue { color: var(--blue); }
+.mc-sub { font-size: 0.65rem; color: var(--text-muted); margin-top: 3px; }
+
+.conf-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.72rem; }
+.conf-table th {
+  text-align: left; padding: 8px 12px;
+  border-bottom: 1px solid var(--border2);
+  color: var(--text-sub); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.conf-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.conf-table tr:last-child td { border-bottom: none; }
+.conf-table tr:hover td { background: var(--surface3); }
+
+.bar-wrap { display: flex; align-items: center; gap: 8px; }
+.mini-bar-bg { flex: 1; height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
+.mini-bar-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.bar-pct { font-size: 0.65rem; min-width: 36px; text-align: right; }
+
+.trades-wrap { max-height: 380px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+.trades-wrap::-webkit-scrollbar { width: 4px; }
+.trades-wrap::-webkit-scrollbar-track { background: var(--surface2); }
+.trades-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.trades-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+.trades-table th {
+  position: sticky; top: 0; background: var(--surface2);
+  padding: 8px 10px; text-align: left;
+  font-family: var(--mono); font-size: 0.58rem; color: var(--text-sub);
+  text-transform: uppercase; letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border2);
+}
+.trades-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); font-family: var(--mono); }
+.trades-table tr:hover td { background: var(--surface3); }
+.win-cell { color: var(--accent); font-weight: 600; }
+.loss-cell { color: var(--red); font-weight: 600; }
+
+.insights-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.insight {
+  padding: 14px 16px; border-radius: 8px; border-left: 3px solid;
+  background: var(--surface2); font-size: 0.78rem; line-height: 1.6;
+}
+.insight.good { border-color: var(--accent); }
+.insight.warn { border-color: var(--amber); }
+.insight.bad  { border-color: var(--red); }
+.insight.info { border-color: var(--blue); }
+.insight-title { font-weight: 600; margin-bottom: 4px; font-size: 0.8rem; }
+.insight.good .insight-title { color: var(--accent); }
+.insight.warn .insight-title { color: var(--amber); }
+.insight.bad  .insight-title { color: var(--red); }
+.insight.info .insight-title { color: var(--blue); }
+.insight-body { color: var(--text-sub); }
+
+.log-box {
+  font-family: var(--mono); font-size: 0.62rem; color: var(--text-sub);
+  background: var(--surface2); border-radius: 6px; padding: 10px 14px;
+  min-height: 28px; line-height: 1.8; border: 1px solid var(--border);
+}
+
+.tabs { display: flex; gap: 2px; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tab {
+  font-family: var(--mono); font-size: 0.65rem; font-weight: 600; letter-spacing: 0.06em;
+  padding: 9px 18px; cursor: pointer; color: var(--text-muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.2s; text-transform: uppercase;
+}
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover:not(.active) { color: var(--text); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+.hidden { display: none !important; }
+
+/* Range table styles */
+.range-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.72rem; }
+.range-table th {
+  text-align: left; padding: 8px 12px;
+  border-bottom: 1px solid var(--border2);
+  color: var(--text-sub); font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.range-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+.range-table tr:last-child td { border-bottom: none; }
+.range-table tr:hover td { background: var(--surface3); }
+.range-table tr.best-row td { background: rgba(0,229,160,0.06); }
+.range-tag {
+  display: inline-block; padding: 2px 8px; border-radius: 12px;
+  font-size: 0.6rem; font-weight: 600; letter-spacing: 0.04em;
+  background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(0,229,160,0.3);
+}
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+<header>
+  <div class="logo">
+    <div class="logo-title">ESB<span>Scout</span> · Backtest Goles</div>
+    <div class="logo-sub">OVER/UNDER simulator · ESports Battle FIFA 8min</div>
+  </div>
+  <div style="display: flex; gap: 1rem; align-items: flex-end;">
+    <div class="nav-links">
+      <a href="index.html" class="nav-link">📊 Análisis</a>
+      <a href="backtest.html" class="nav-link">🔬 Backtest</a>
+      <a href="backtest-goles.html" class="nav-link active">⚽ Backtest Goles</a>
+    </div>
+    <div class="version-badge">v2.0 · localhost:3000</div>
+  </div>
+</header>
+
+<!-- ── PARÁMETROS ── -->
+<div class="panel">
+  <div class="panel-title">Parámetros de estrategia — Goles</div>
+
+  <!-- Línea de goles -->
+  <div style="margin-bottom: 1.4rem;">
+    <div class="param-label" style="margin-bottom: 8px;">Línea de goles <span id="lineDisplay">Over 4.5</span></div>
+    <div class="line-selector" id="lineSelector">
+      <button class="line-btn active" data-line="4.5">Over 4.5</button>
+      <button class="line-btn" data-line="5.5">Over 5.5</button>
+      <button class="line-btn" data-line="6.5">Over 6.5</button>
+    </div>
+    <div class="param-desc" style="margin-top:6px">La línea que se testea: el partido debe tener más goles que este umbral para ser WIN</div>
+  </div>
+
+  <div class="params-grid">
+
+    <div class="param-item">
+      <div class="param-label">Over% mínimo para apostar <span id="overMinVal">55%</span></div>
+      <input type="range" id="overMin" min="40" max="85" step="1" value="55">
+      <div class="param-desc">La media geométrica de Over% entre los dos jugadores debe superar este umbral</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Edge mínimo vs odd <span id="edgeMinVal">3%</span></div>
+      <input type="range" id="edgeMin" min="0" max="20" step="1" value="3">
+      <div class="param-desc">Over% calculado debe superar la probabilidad implícita de la odd + este margen</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Muestra mínima por jugador <span id="sampleMinVal">10</span></div>
+      <input type="range" id="sampleMin" min="5" max="40" step="1" value="10">
+      <div class="param-desc">Partidos usados para calcular el Over% de cada jugador (muestra mínima confiable)</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">StdDev máxima permitida <span id="stdDevMaxVal">25%</span></div>
+      <input type="range" id="stdDevMax" min="10" max="50" step="1" value="25">
+      <div class="param-desc">Descarta pares con alta variabilidad en el promedio de goles (señal poco confiable)</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Bankroll inicial <span id="bankrollVal">$1,000</span></div>
+      <input type="range" id="bankrollSlider" min="100" max="5000" step="100" value="1000">
+      <div class="param-desc">Capital inicial para simular curva de capital</div>
+    </div>
+
+    <div class="param-item">
+      <div class="param-label">Apuesta fija por operación <span id="betSizeVal">$100</span></div>
+      <input type="range" id="betSize" min="10" max="500" step="10" value="100">
+      <div class="param-desc">Monto fijo por apuesta (flat betting)</div>
+    </div>
+
+  </div>
+
+  <div style="margin-top: 1.2rem;">
+    <div class="param-label" style="margin-bottom: 8px;">Odd simulada <span id="oddDisplayVal">1.85</span></div>
+    <div class="odd-selector" id="oddSelector">
+      <button class="odd-btn" data-odd="1.52">1.52</button>
+      <button class="odd-btn" data-odd="1.65">1.65</button>
+      <button class="odd-btn active" data-odd="1.85">1.85</button>
+      <button class="odd-btn" data-odd="1.95">1.95</button>
+      <button class="odd-btn" data-odd="2.05">2.05</button>
+      <button class="odd-btn" data-odd="2.20">2.20</button>
+    </div>
+  </div>
+
+  <div class="run-area">
+    <button class="btn-run" id="runBtn" onclick="runBacktest()">▶ EJECUTAR BACKTEST</button>
+    <div class="progress-wrap" id="progressWrap" style="display:none">
+      <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+      <div class="progress-label" id="progressLabel">Iniciando...</div>
+    </div>
+  </div>
+  <div class="log-box" id="logBox" style="margin-top:10px">Listo. Configurá los parámetros y ejecutá el backtest de goles.</div>
+</div>
+
+<!-- ── RESULTADOS ── -->
+<div id="resultsSection" class="hidden">
+
+  <div class="metrics-grid" id="metricsGrid"></div>
+
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('equity')">📈 Curva capital</div>
+    <div class="tab" onclick="switchTab('ranges')">🎯 Por rango Over%</div>
+    <div class="tab" onclick="switchTab('trades')">📋 Operaciones</div>
+    <div class="tab" onclick="switchTab('insights')">💡 Insights</div>
+  </div>
+
+  <div id="tab-equity" class="tab-pane active">
+    <div class="panel">
+      <div class="panel-title">Curva de capital</div>
+      <canvas id="equityCanvas" style="width:100%;height:220px;display:block;"></canvas>
+    </div>
+  </div>
+
+  <div id="tab-ranges" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">Rendimiento por rango de Over%</div>
+      <p style="font-size:0.72rem;color:var(--text-sub);margin-bottom:1rem">
+        Cada fila agrupa apuestas donde la media geométrica de Over% de ambos jugadores cae en ese rango.
+        Útil para encontrar el umbral óptimo de corte.
+      </p>
+      <table class="range-table" id="rangeTable">
+        <thead><tr>
+          <th>Rango Over%</th>
+          <th>Apuestas</th>
+          <th>Win rate real</th>
+          <th>ROI</th>
+          <th>Profit</th>
+          <th>Over% prom.</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-trades" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">Log de operaciones simuladas</div>
+      <div class="trades-wrap">
+        <table class="trades-table" id="tradesTable">
+          <thead><tr>
+            <th>#</th><th>P1</th><th>P2</th>
+            <th>Línea</th><th>Over%Geo</th><th>Edge</th><th>StdDev</th><th>Goles reales</th><th>Resultado</th><th>P&L</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-insights" class="tab-pane">
+    <div class="panel">
+      <div class="panel-title">Análisis automático</div>
+      <div class="insights-grid" id="insightsGrid"></div>
+    </div>
+  </div>
+
+</div>
+
+</div><!-- /wrapper -->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const PROXY = 'http://localhost:3000/proxy?url=';
+const ESB   = 'https://football.esportsbattle.com/api/participants';
+
+let simOdd  = 1.85;
+let simLine = 4.5;
+let equityChart = null;
+
+// ── SLIDERS ──
+const sliders = [
+  { id:'overMin',       out:'overMinVal',    fmt: v=>`${v}%`   },
+  { id:'edgeMin',       out:'edgeMinVal',    fmt: v=>`${v}%`   },
+  { id:'sampleMin',     out:'sampleMinVal',  fmt: v=>`${v}`    },
+  { id:'stdDevMax',     out:'stdDevMaxVal',  fmt: v=>`${v}%`   },
+  { id:'bankrollSlider',out:'bankrollVal',   fmt: v=>`$${(+v).toLocaleString()}` },
+  { id:'betSize',       out:'betSizeVal',    fmt: v=>`$${v}`   },
+];
+sliders.forEach(s=>{
+  const el = document.getElementById(s.id);
+  const out = document.getElementById(s.out);
+  el.addEventListener('input', ()=>{ out.textContent = s.fmt(el.value); });
+});
+
+// ── LINE BUTTONS ──
+document.getElementById('lineSelector').querySelectorAll('.line-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.line-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    simLine = parseFloat(btn.dataset.line);
+    document.getElementById('lineDisplay').textContent = `Over ${simLine}`;
+  });
+});
+
+// ── ODD BUTTONS ──
+document.getElementById('oddSelector').querySelectorAll('.odd-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.odd-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    simOdd = parseFloat(btn.dataset.odd);
+    document.getElementById('oddDisplayVal').textContent = simOdd.toFixed(2);
+  });
+});
+
+function switchTab(name) {
+  const tabs = ['equity','ranges','trades','insights'];
+  document.querySelectorAll('.tab').forEach((t,i)=>{
+    t.classList.toggle('active', tabs[i]===name);
+  });
+  document.querySelectorAll('.tab-pane').forEach(p=>{
+    p.classList.toggle('active', p.id===`tab-${name}`);
+  });
+}
+
+function log(msg) { document.getElementById('logBox').textContent = msg; }
+
+async function sendLog(message, level='INFO') {
+  try {
+    await fetch('/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, level, type: 'goles' })
+    });
+  } catch(e) {}
+}
+
+function setProgress(pct, label) {
+  document.getElementById('progressFill').style.width = pct+'%';
+  document.getElementById('progressLabel').textContent = label;
+}
+
+async function pFetch(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const r = await fetch(PROXY + encodeURIComponent(url), { signal: controller.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── CALCULAR STATS DE GOLES PARA UN JUGADOR ──
+// Recibe array de matches donde participó el jugador, y la línea
+function calcGoalsStats(matches, nickname, line) {
+  const totals = [];
+  matches.forEach(m => {
+    const s1 = m.participant1?.score ?? null;
+    const s2 = m.participant2?.score ?? null;
+    if (s1 === null || s2 === null) return;
+    totals.push(s1 + s2);
+  });
+
+  if (totals.length === 0) return null;
+
+  const n = totals.length;
+  const mean = totals.reduce((a,b) => a+b, 0) / n;
+  const variance = totals.reduce((s, v) => s + (v - mean)**2, 0) / n;
+  const stdDev = Math.sqrt(variance);
+  const overCount = totals.filter(t => t > line).length;
+  const overPct = (overCount / n) * 100;
+
+  return { mean, stdDev, overPct, n };
+}
+
+// ── MEDIA GEOMÉTRICA DE DOS PORCENTAJES ──
+function geoMean(a, b) {
+  return Math.sqrt(a * b);
+}
+
+// ── MAIN BACKTEST ──
+async function runBacktest() {
+  const params = {
+    line:      simLine,
+    overMin:   parseFloat(document.getElementById('overMin').value),
+    edgeMin:   parseFloat(document.getElementById('edgeMin').value),
+    sampleMin: parseFloat(document.getElementById('sampleMin').value),
+    stdDevMax: parseFloat(document.getElementById('stdDevMax').value),
+    bankroll:  parseFloat(document.getElementById('bankrollSlider').value),
+    betSize:   parseFloat(document.getElementById('betSize').value),
+    odd:       simOdd,
+  };
+
+  await sendLog('⚽ BACKTEST GOLES INICIADO ' + JSON.stringify(params));
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('resultsSection').classList.add('hidden');
+
+  try {
+    // 1. Cargar jugadores
+    log('Cargando jugadores...');
+    setProgress(2, 'Cargando jugadores...');
+    const page1 = await pFetch(`${ESB}?page=1`);
+    const totalPages = page1.totalPages || 1;
+    let allPlayers = [...(page1.participants||[])];
+    for(let p=2; p<=totalPages; p++) {
+      const d = await pFetch(`${ESB}?page=${p}`);
+      allPlayers.push(...(d.participants||[]));
+    }
+
+    allPlayers = allPlayers
+      .filter(p => p.nickname && p.totalMatches >= 200)
+      .sort((a,b) => (b.totalMatches||0) - (a.totalMatches||0))
+      .slice(0, 500);
+
+    log(`${allPlayers.length} jugadores activos.`);
+    await sendLog(`✅ Players: ${allPlayers.length}`);
+    setProgress(8, `${allPlayers.length} jugadores · descargando torneos...`);
+
+    // 2. Descargar torneos recientes (páginas 1-2, status_id=4, últimos 6)
+    const playerData = {};
+    const BATCH = 5;
+    for(let i=0; i<allPlayers.length; i+=BATCH) {
+      const batch = allPlayers.slice(i, i+BATCH);
+      await Promise.allSettled(batch.map(async p => {
+        try {
+          const [r1,r2] = await Promise.all([1,2].map(pg =>
+            pFetch(`${ESB}/${p.nickname}/tournaments?page=${pg}`)
+          ));
+          const tournaments = [r1,r2]
+            .flatMap(r => r.tournaments||[])
+            .filter(t => t.status_id===4)
+            .slice(0,6);
+          playerData[p.nickname] = { info: p, tournaments };
+        } catch(e) {}
+      }));
+      const pct = 8 + Math.round((i/allPlayers.length)*30);
+      setProgress(pct, `Torneos: ${Math.min(i+BATCH, allPlayers.length)}/${allPlayers.length}`);
+    }
+    log(`Torneos descargados (${Object.keys(playerData).length} jugadores). Bajando partidos...`);
+    setProgress(40, 'Descargando partidos históricos...');
+
+    // 3. Descargar partidos únicos de esos torneos
+    const allTournamentIds = new Set();
+    Object.values(playerData).forEach(pd => pd.tournaments.forEach(t => allTournamentIds.add(t.id)));
+    const tournamentIds = [...allTournamentIds];
+
+    const matchCache = {};
+    for(let i=0; i<tournamentIds.length; i++) {
+      const tid = tournamentIds[i];
+      try {
+        const matches = await pFetch(`https://football.esportsbattle.com/api/tournaments/${tid}/matches`);
+        if(Array.isArray(matches)) matchCache[tid] = matches;
+      } catch(e) {}
+      if(i % 5 === 0) {
+        const pct = 40 + Math.round((i/tournamentIds.length)*30);
+        setProgress(pct, `Partidos: ${i+1}/${tournamentIds.length} torneos`);
+      }
+    }
+
+    const totalMatchesCached = Object.values(matchCache).reduce((s,m)=>s+m.length,0);
+    log(`${Object.keys(matchCache).length} torneos, ${totalMatchesCached} partidos en cache.`);
+    await sendLog(`✅ matchCache: ${Object.keys(matchCache).length} torneos, ${totalMatchesCached} matches`);
+    setProgress(72, 'Calculando Over% por jugador...');
+
+    // 4. Calcular goalsStats por jugador (para la línea seleccionada)
+    const goalsStatsCache = {};
+    Object.entries(playerData).forEach(([nick, pd]) => {
+      const myMatches = [];
+      pd.tournaments.forEach(t => {
+        (matchCache[t.id]||[]).forEach(m => {
+          if(m.participant1?.nickname===nick || m.participant2?.nickname===nick)
+            myMatches.push(m);
+        });
+      });
+      const stats = calcGoalsStats(myMatches, nick, params.line);
+      if(stats) goalsStatsCache[nick] = stats;
+    });
+
+    const coveredPlayers = Object.keys(goalsStatsCache).length;
+    log(`Over% calculado para ${coveredPlayers} jugadores sobre línea ${params.line}.`);
+    await sendLog(`✅ goalsStats: ${coveredPlayers} jugadores`);
+    setProgress(80, 'Construyendo pares de partidos...');
+
+    // 5. Construir pares de partidos únicos con info de goles reales
+    const simMatches = [];
+    const seenMatchIds = new Set();
+
+    outer: for(const matches of Object.values(matchCache)) {
+      for(const m of matches) {
+        const n1 = m.participant1?.nickname;
+        const n2 = m.participant2?.nickname;
+        if(!n1||!n2) continue;
+        if(!goalsStatsCache[n1]||!goalsStatsCache[n2]) continue;
+
+        const s1 = m.participant1?.score;
+        const s2 = m.participant2?.score;
+        if(s1===null||s1===undefined||s2===null||s2===undefined) continue;
+
+        const matchId = m.id || `${n1}|${n2}|${s1}|${s2}`;
+        if(seenMatchIds.has(matchId)) continue;
+        seenMatchIds.add(matchId);
+
+        const totalGoals = s1 + s2;
+        const gs1 = goalsStatsCache[n1];
+        const gs2 = goalsStatsCache[n2];
+
+        // Filtrar por muestra mínima
+        if(gs1.n < params.sampleMin || gs2.n < params.sampleMin) continue;
+
+        // Media geométrica de Over%
+        const overGeo = geoMean(gs1.overPct, gs2.overPct);
+
+        // StdDev promedio del par
+        const stdDevPair = (gs1.stdDev + gs2.stdDev) / 2;
+
+        simMatches.push({
+          n1, n2, totalGoals,
+          overGeo, stdDevPair,
+          gs1, gs2,
+        });
+        if(simMatches.length >= 2000) break outer;
+      }
+    }
+
+    log(`${simMatches.length} pares únicos. Aplicando filtros...`);
+    await sendLog(`✅ simMatches: ${simMatches.length}`);
+    setProgress(90, `Evaluando ${simMatches.length} partidos...`);
+
+    // 6. Aplicar estrategia
+    const impliedProb = (1 / params.odd) * 100;
+    const trades = [];
+    let bankroll = params.bankroll;
+    const equityCurve = [bankroll];
+    let filtered = 0;
+
+    simMatches.forEach(match => {
+      const { n1, n2, totalGoals, overGeo, stdDevPair, gs1, gs2 } = match;
+
+      // Filtros
+      if(overGeo < params.overMin)               { filtered++; return; }
+      if(overGeo < impliedProb + params.edgeMin) { filtered++; return; }
+      if(stdDevPair > params.stdDevMax)           { filtered++; return; }
+
+      const edge = overGeo - impliedProb;
+      const won  = totalGoals > params.line;
+      const profit = won ? params.betSize * (params.odd - 1) : -params.betSize;
+      bankroll += profit;
+
+      trades.push({
+        n1, n2,
+        line: params.line,
+        overGeo,
+        edge,
+        stdDevPair,
+        totalGoals,
+        won, profit,
+        bankrollAfter: bankroll,
+      });
+      equityCurve.push(bankroll);
+    });
+
+    setProgress(100, `Simulación completa · ${trades.length} apuestas`);
+    const wins = trades.filter(t=>t.won).length;
+    const totalProfit = trades.reduce((s,t)=>s+t.profit,0);
+    const roi = trades.length>0 ? (totalProfit / (trades.length * params.betSize) * 100) : 0;
+    log(`✓ ${trades.length} apuestas. ${wins}W/${trades.length-wins}L · ROI ${roi>=0?'+':''}${roi.toFixed(1)}%`);
+    await sendLog(`🎯 RESULTADO: ${wins}W/${trades.length-wins}L ROI=${roi.toFixed(1)}%`);
+
+    renderResults(trades, equityCurve, params, simMatches.length);
+
+  } catch(e) {
+    console.error('❌ ERROR:', e);
+    await sendLog('❌ ERROR: ' + e.message, 'ERROR');
+    log(`Error: ${e.message}`);
+    setProgress(0,'Error');
+  } finally {
+    btn.disabled = false;
+    await sendLog('🏁 Backtest goles finalizado');
+  }
+}
+
+// ── RENDER ──
+function renderResults(trades, equityCurve, params, totalAnalyzed) {
+  document.getElementById('resultsSection').classList.remove('hidden');
+
+  const wins       = trades.filter(t=>t.won).length;
+  const losses     = trades.filter(t=>!t.won).length;
+  const winRate    = trades.length>0 ? (wins/trades.length*100) : 0;
+  const totalProfit= trades.reduce((s,t)=>s+t.profit,0);
+  const invested   = trades.length * params.betSize;
+  const roi        = invested>0 ? (totalProfit/invested*100) : 0;
+  const passRate   = totalAnalyzed>0 ? ((totalAnalyzed-trades.length)/totalAnalyzed*100) : 0;
+
+  let peak=params.bankroll, maxDD=0;
+  equityCurve.forEach(v=>{ if(v>peak)peak=v; const dd=(peak-v)/peak*100; if(dd>maxDD)maxDD=dd; });
+
+  const roiClass = roi>=0 ? 'green' : 'red';
+  const wrClass  = winRate>=55 ? 'green' : winRate>=48 ? 'amber' : 'red';
+  const avgOverGeo = trades.length>0 ? (trades.reduce((s,t)=>s+t.overGeo,0)/trades.length) : 0;
+
+  document.getElementById('metricsGrid').innerHTML = `
+    <div class="metric-card ${roiClass}">
+      <div class="mc-label">ROI simulado</div>
+      <div class="mc-value ${roiClass}">${roi>=0?'+':''}${roi.toFixed(1)}%</div>
+      <div class="mc-sub">${totalProfit>=0?'+':''}$${totalProfit.toFixed(0)} sobre $${invested.toLocaleString()}</div>
+    </div>
+    <div class="metric-card ${wrClass}">
+      <div class="mc-label">Win rate real</div>
+      <div class="mc-value ${wrClass}">${winRate.toFixed(1)}%</div>
+      <div class="mc-sub">${wins}W / ${losses}L de ${trades.length} apuestas</div>
+    </div>
+    <div class="metric-card blue">
+      <div class="mc-label">Apuestas ejecutadas</div>
+      <div class="mc-value blue">${trades.length}</div>
+      <div class="mc-sub">${passRate.toFixed(0)}% de pares descartados</div>
+    </div>
+    <div class="metric-card ${maxDD>20?'red':maxDD>10?'amber':'green'}">
+      <div class="mc-label">Drawdown máximo</div>
+      <div class="mc-value ${maxDD>20?'red':maxDD>10?'amber':'green'}">${maxDD.toFixed(1)}%</div>
+      <div class="mc-sub">Peor racha simulada</div>
+    </div>
+    <div class="metric-card">
+      <div class="mc-label">Bankroll final</div>
+      <div class="mc-value ${equityCurve[equityCurve.length-1]>=params.bankroll?'green':'red'}">
+        $${Math.round(equityCurve[equityCurve.length-1]).toLocaleString()}
+      </div>
+      <div class="mc-sub">Inicial: $${params.bankroll.toLocaleString()}</div>
+    </div>
+    <div class="metric-card amber">
+      <div class="mc-label">Over% geo prom.</div>
+      <div class="mc-value amber">${avgOverGeo.toFixed(1)}%</div>
+      <div class="mc-sub">Línea Over ${params.line} · odd ${params.odd}</div>
+    </div>
+  `;
+
+  // ── EQUITY CHART ──
+  const ctx = document.getElementById('equityCanvas').getContext('2d');
+  if(equityChart) equityChart.destroy();
+  equityChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: equityCurve.map((_,i)=>i),
+      datasets: [{
+        data: equityCurve,
+        borderColor: '#00e5a0',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: true,
+        backgroundColor: 'rgba(0,229,160,0.06)',
+        tension: 0.3,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          ticks: { color: '#6a7d9a', font: { family: 'IBM Plex Mono', size: 10 },
+            callback: v => `$${v.toLocaleString()}` }
+        }
+      }
+    }
+  });
+
+  // ── TAB: POR RANGO OVER% ──
+  // Buckets: 40-45, 45-50, 50-55, 55-60, 60-65, 65-70, 70+
+  const buckets = [
+    { label: '40 – 45%', min: 40, max: 45 },
+    { label: '45 – 50%', min: 45, max: 50 },
+    { label: '50 – 55%', min: 50, max: 55 },
+    { label: '55 – 60%', min: 55, max: 60 },
+    { label: '60 – 65%', min: 60, max: 65 },
+    { label: '65 – 70%', min: 65, max: 70 },
+    { label: '70%+',     min: 70, max: 999 },
+  ];
+
+  const bucketData = buckets.map(b => {
+    const bt = trades.filter(t => t.overGeo >= b.min && t.overGeo < b.max);
+    const bw = bt.filter(t=>t.won).length;
+    const bp = bt.reduce((s,t)=>s+t.profit,0);
+    const bRoi = bt.length>0 ? (bp/(bt.length*params.betSize)*100) : null;
+    const avgOvr = bt.length>0 ? (bt.reduce((s,t)=>s+t.overGeo,0)/bt.length) : null;
+    return { ...b, n: bt.length, w: bw, profit: bp, roi: bRoi, avgOvr };
+  }).filter(b => b.n > 0);
+
+  // Mejor bucket por ROI
+  const bestBucket = bucketData.length>0
+    ? bucketData.reduce((a,b) => (b.roi??-999) > (a.roi??-999) ? b : a)
+    : null;
+
+  const tbody = document.querySelector('#rangeTable tbody');
+  tbody.innerHTML = bucketData.map(b => {
+    const wr = b.n>0 ? (b.w/b.n*100) : 0;
+    const roiStr = b.roi !== null ? `${b.roi>=0?'+':''}${b.roi.toFixed(1)}%` : '—';
+    const roiColor = b.roi>=0 ? '#00e5a0' : '#ff4d6d';
+    const wrColor  = wr>=55 ? '#00e5a0' : wr>=48 ? '#ffb830' : '#ff4d6d';
+    const isBest = bestBucket && b.label === bestBucket.label;
+    return `<tr${isBest?' class="best-row"':''}>
+      <td>
+        <span class="range-tag">${b.label}</span>
+        ${isBest ? ' <span style="font-size:0.6rem;color:var(--accent)">★ mejor ROI</span>' : ''}
+      </td>
+      <td style="color:var(--text)">${b.n}</td>
+      <td style="color:${wrColor}">${wr.toFixed(1)}%  <span style="color:var(--text-muted);font-size:0.65rem">(${b.w}W/${b.n-b.w}L)</span></td>
+      <td style="color:${roiColor}">${roiStr}</td>
+      <td style="color:${b.profit>=0?'#00e5a0':'#ff4d6d'}">${b.profit>=0?'+':''}$${b.profit.toFixed(0)}</td>
+      <td style="color:var(--text-sub)">${b.avgOvr!==null ? b.avgOvr.toFixed(1)+'%' : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  // ── TAB: TRADES LOG ──
+  const tradesTbody = document.querySelector('#tradesTable tbody');
+  tradesTbody.innerHTML = trades.slice().reverse().map((t,i) => `
+    <tr>
+      <td style="color:var(--text-muted)">${trades.length-i}</td>
+      <td>${t.n1}</td>
+      <td style="color:var(--text-sub)">${t.n2}</td>
+      <td style="color:var(--amber)">Over ${t.line}</td>
+      <td style="color:var(--accent)">${t.overGeo.toFixed(1)}%</td>
+      <td style="color:var(--text-sub)">${t.edge>=0?'+':''}${t.edge.toFixed(1)}%</td>
+      <td style="color:${t.stdDevPair>20?'#ff4d6d':'var(--text-sub)'}">${t.stdDevPair.toFixed(1)}</td>
+      <td>${t.totalGoals} goles</td>
+      <td class="${t.won?'win-cell':'loss-cell'}">${t.won?'OVER ✓':'UNDER ✗'}</td>
+      <td class="${t.profit>=0?'win-cell':'loss-cell'}">${t.profit>=0?'+':''}$${t.profit.toFixed(0)}</td>
+    </tr>`).join('');
+
+  // ── TAB: INSIGHTS ──
+  const insights = [];
+
+  if(roi > 0)
+    insights.push({type:'good', title:`ROI positivo: +${roi.toFixed(1)}%`, body:`Con estos parámetros la estrategia de goles genera $${totalProfit.toFixed(0)} en ${trades.length} apuestas históricas sobre Over ${params.line}. Señal sólida, pero siempre validar muestra.`});
+  else
+    insights.push({type:'bad', title:`ROI negativo: ${roi.toFixed(1)}%`, body:`Con estos parámetros la estrategia pierde. Probá subir el Over% mínimo o bajar la StdDev máxima para filtrar señales más limpias.`});
+
+  if(bestBucket && bestBucket.roi !== null && bestBucket.roi > 0)
+    insights.push({type:'info', title:`Mejor rango: ${bestBucket.label}`, body:`El rango ${bestBucket.label} es el más rentable con ROI ${bestBucket.roi>=0?'+':''}${bestBucket.roi.toFixed(1)}% en ${bestBucket.n} apuestas. Considerá usar ese umbral como mínimo en el analizador.`});
+
+  if(winRate >= 55 && roi > 0)
+    insights.push({type:'good', title:`Win rate de ${winRate.toFixed(1)}% sobre Over`, body:`Superar el break-even de ${(100/params.odd).toFixed(1)}% (implícita de la odd ${params.odd}) por ${(winRate - 100/params.odd).toFixed(1)} puntos indica edge real en la muestra.`});
+
+  if(passRate > 70)
+    insights.push({type:'good', title:`${passRate.toFixed(0)}% de partidos descartados`, body:`Los filtros de Over% y StdDev son selectivos. Solo apostás 1 de cada ${Math.round(100/(100-passRate))} pares, priorizando calidad de señal sobre volumen.`});
+
+  if(maxDD > 25)
+    insights.push({type:'warn', title:`Drawdown de ${maxDD.toFixed(0)}% — revisá sizing`, body:`En algún momento del backtest el capital cayó ${maxDD.toFixed(0)}% desde el máximo. Con bankroll de $${params.bankroll.toLocaleString()}, considerá reducir el tamaño de apuesta o usar Kelly fraction.`});
+
+  if(trades.length < 30)
+    insights.push({type:'warn', title:`Muestra pequeña: ${trades.length} apuestas`, body:`Con menos de 30 apuestas los resultados son estadísticamente poco confiables. Bajá los filtros o ampliá el rango de jugadores para obtener más datos históricos.`});
+
+  document.getElementById('insightsGrid').innerHTML = insights.map(ins=>`
+    <div class="insight ${ins.type}">
+      <div class="insight-title">${ins.title}</div>
+      <div class="insight-body">${ins.body}</div>
+    </div>`).join('');
+
+  switchTab('equity');
+  document.getElementById('resultsSection').scrollIntoView({behavior:'smooth', block:'start'});
+}
+</script>
+</body>
+</html>

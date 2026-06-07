@@ -4,188 +4,1168 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ESB Scout</title>
-<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0a0f; --surface: #111118; --surface2: #1a1a24;
-    --border: #2a2a3a; --accent: #00ff88; --accent2: #ff4466;
-    --accent3: #ffaa00; --text: #e8e8f0; --muted: #666680;
+    --bg: #0d0d12;
+    --surface: #16161f;
+    --surface2: #1e1e2a;
+    --border: #2c2c3e;
+    --accent: #4fd1a5;
+    --accent2: #f07080;
+    --accent3: #e0a94a;
+    --accent4: #60a8e8;
+    --text: #dde1f0;
+    --text-sub: #8890aa;
+    --muted: #555870;
+    --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  }
+  [data-theme="light"] {
+    --bg: #f0f2f8;
+    --surface: #ffffff;
+    --surface2: #e8eaf4;
+    --border: #d0d4e8;
+    --accent: #1a9e72;
+    --accent2: #d0404f;
+    --accent3: #c07c10;
+    --accent4: #2070c8;
+    --text: #1a1c2e;
+    --text-sub: #505570;
+    --muted: #8890aa;
+    --shadow: 0 4px 24px rgba(0,0,0,0.1);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; min-height: 100vh; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; min-height: 100vh; font-size: 15px; line-height: 1.5; transition: background 0.2s, color 0.2s; }
   body::before {
     content: ''; position: fixed; inset: 0;
-    background-image: linear-gradient(rgba(0,255,136,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,136,0.03) 1px, transparent 1px);
-    background-size: 40px 40px; pointer-events: none; z-index: 0;
+    background-image: linear-gradient(var(--border) 1px, transparent 1px), linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px; opacity: 0.12; pointer-events: none; z-index: 0;
   }
-  .wrapper { position: relative; z-index: 1; max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem; }
-  header { margin-bottom: 2rem; }
-  .logo-main { font-size: 1.8rem; font-weight: 800; letter-spacing: -0.03em; }
+  .wrapper { position: relative; z-index: 1; max-width: 1140px; margin: 0 auto; padding: 2rem 1.5rem; }
+
+  /* ── HEADER ── */
+  header { margin-bottom: 2.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
+  .logo-main { font-size: 2rem; font-weight: 700; letter-spacing: -0.04em; color: var(--text); }
   .logo-main span { color: var(--accent); }
-  .logo-sub { font-family: 'Space Mono', monospace; font-size: 0.6rem; color: var(--muted); letter-spacing: 0.15em; margin-top: 4px; }
+  .logo-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; color: var(--muted); letter-spacing: 0.12em; margin-top: 3px; text-transform: uppercase; }
+  .header-right { display: flex; align-items: center; gap: 12px; }
+  .bankroll-display {
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 18px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+    box-shadow: var(--shadow);
+  }
+  .bankroll-label { font-size: 0.58rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; }
+  .bankroll-value { color: var(--accent); font-weight: 700; font-size: 1rem; }
 
-  .hint { font-family: 'Space Mono', monospace; font-size: 0.65rem; color: var(--muted); margin-bottom: 8px; line-height: 1.8; }
-  .hint span { color: var(--accent3); }
+  /* ── NAVIGATION ── */
+  .nav-links { display: flex; gap: 2px; }
+  .nav-link {
+    font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+    padding: 6px 12px; border-radius: 6px; background: transparent;
+    border: 1px solid var(--border); color: var(--text-sub);
+    cursor: pointer; transition: all 0.2s; text-decoration: none;
+  }
+  .nav-link:hover { border-color: var(--accent); color: var(--accent); }
+  .nav-link.active { background: var(--accent); color: #000; border-color: var(--accent); }
 
+  /* ── THEME TOGGLE ── */
+  .theme-btn {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text-sub);
+    border-radius: 8px; padding: 8px 12px; cursor: pointer; font-size: 1rem;
+    transition: all 0.2s; line-height: 1;
+  }
+  .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── TABS ── */
+  .tabs { display: flex; gap: 2px; margin-bottom: 2rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .tab { font-size: 0.78rem; font-weight: 600; letter-spacing: 0.04em; padding: 10px 20px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.2s; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* ── FORM ELEMENTS ── */
+  .hint { font-size: 0.82rem; color: var(--text-sub); margin-bottom: 10px; line-height: 1.7; }
+  .hint span { color: var(--accent3); font-weight: 500; }
   textarea {
     width: 100%; background: var(--surface); border: 1px solid var(--border);
     color: var(--text); padding: 14px 16px; border-radius: 10px;
-    font-family: 'Space Mono', monospace; font-size: 0.85rem; line-height: 1.8;
-    outline: none; resize: vertical; min-height: 160px; transition: border-color 0.2s;
+    font-family: 'JetBrains Mono', monospace; font-size: 0.88rem; line-height: 1.9;
+    outline: none; resize: vertical; min-height: 140px; transition: border-color 0.2s;
   }
   textarea:focus { border-color: var(--accent); }
   textarea::placeholder { color: var(--muted); }
 
+  .controls { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
   .btn {
-    background: var(--accent); color: #000; border: none; padding: 12px 28px;
-    border-radius: 8px; font-family: 'Space Mono', monospace; font-size: 0.8rem;
-    font-weight: 700; cursor: pointer; transition: all 0.15s; margin-top: 12px;
+    background: var(--accent); color: #000; border: none; padding: 10px 22px;
+    border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 0.78rem;
+    font-weight: 700; cursor: pointer; transition: all 0.15s; letter-spacing: 0.02em;
   }
-  .btn:hover { background: #00ffaa; transform: translateY(-1px); }
-  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+  .btn:hover { filter: brightness(1.12); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(79,209,165,0.3); }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+  .btn.secondary { background: transparent; color: var(--text-sub); border: 1px solid var(--border); }
+  .btn.secondary:hover { border-color: var(--accent); color: var(--accent); background: transparent; box-shadow: none; }
 
-  .results { margin-top: 2rem; display: flex; flex-direction: column; gap: 10px; }
-
-  .card {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-    padding: 1rem 1.4rem; display: grid; grid-template-columns: 1fr auto 1fr auto;
-    gap: 10px; align-items: center; animation: fadeIn 0.2s ease;
+  .bankroll-input-wrap { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .bankroll-input-wrap label { font-size: 0.65rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 500; }
+  .bankroll-input-wrap input {
+    background: var(--surface); border: 1px solid var(--border); color: var(--accent);
+    padding: 8px 12px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88rem; outline: none; width: 130px; font-weight: 700;
   }
-  @keyframes fadeIn { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
-  .card.loading { opacity: 0.4; }
-  .card.error { border-color: var(--accent2); }
 
-  .side { display: flex; flex-direction: column; gap: 3px; }
-  .side.right { text-align: right; align-items: flex-end; }
-  .pname { font-size: 1rem; font-weight: 800; }
-  .pname.w { color: var(--accent); }
-  .pname.l { color: var(--muted); }
-  .pwr { font-family: 'Space Mono', monospace; font-size: 0.82rem; font-weight: 700; }
-  .pwr.w { color: var(--accent); }
-  .pwr.l { color: var(--muted); }
-  .pwdl { font-family: 'Space Mono', monospace; font-size: 0.6rem; color: var(--muted); }
-
-  .mid { text-align: center; font-weight: 800; color: var(--muted); font-size: 0.85rem; line-height: 1.6; }
-  .mid small { display: block; font-family: 'Space Mono', monospace; font-size: 0.55rem; }
-
-  .rec { text-align: right; min-width: 110px; }
-  .rec-name { font-size: 1rem; font-weight: 800; color: var(--accent); }
-  .rec-name.pass { color: var(--accent3); }
-  .conf {
-    display: inline-block; font-family: 'Space Mono', monospace; font-size: 0.6rem;
-    padding: 2px 10px; border-radius: 20px; font-weight: 700; margin-top: 3px;
+  /* ── RESULTS TABLE ── */
+  .results { margin-top: 2rem; }
+  .results-header {
+    font-size: 0.7rem; font-weight: 600; color: var(--text-sub);
+    letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 1rem;
+    display: flex; align-items: center; gap: 12px;
   }
-  .c-high { background: rgba(0,255,136,0.15); color: var(--accent); }
-  .c-mid  { background: rgba(255,170,0,0.15);  color: var(--accent3); }
-  .c-low  { background: rgba(255,68,102,0.15); color: var(--accent2); }
-  .warn-small { font-family: 'Space Mono', monospace; font-size: 0.58rem; color: var(--accent3); margin-top: 2px; }
-  .err-txt { font-family: 'Space Mono', monospace; font-size: 0.7rem; color: var(--accent2); grid-column: 1/-1; }
+  .results-header::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  thead th {
+    font-size: 0.68rem; font-weight: 600; color: var(--text-sub);
+    text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px;
+    text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap;
+    background: var(--surface2);
+  }
+  tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: rgba(79,209,165,0.04); }
+  tbody tr.loading td { opacity: 0.5; }
+  tbody tr.error td { background: rgba(240,112,128,0.06); }
+
+  .mono { font-family: 'JetBrains Mono', monospace; }
+  .winner-name { font-weight: 700; font-size: 0.95rem; color: var(--accent); }
+  .pass-name { color: var(--muted); font-style: italic; }
+  .wr-good { color: var(--accent); font-weight: 600; }
+  .wr-mid  { color: var(--accent3); font-weight: 600; }
+  .wr-bad  { color: var(--accent2); font-weight: 600; }
+
+  .conf-pill {
+    display: inline-block; font-size: 0.68rem; font-weight: 600;
+    padding: 3px 10px; border-radius: 20px; white-space: nowrap; letter-spacing: 0.03em;
+  }
+  .c-vhigh { background: rgba(79,209,165,0.18); color: var(--accent);  border: 1px solid rgba(79,209,165,0.35); }
+  .c-high  { background: rgba(79,209,165,0.10); color: var(--accent);  border: 1px solid rgba(79,209,165,0.25); }
+  .c-mhigh { background: rgba(224,169,74,0.18); color: var(--accent3); border: 1px solid rgba(224,169,74,0.3);  }
+  .c-mlow  { background: rgba(224,169,74,0.10); color: var(--accent3); border: 1px solid rgba(224,169,74,0.2);  }
+  .c-low   { background: rgba(240,112,128,0.12); color: var(--accent2); border: 1px solid rgba(240,112,128,0.25); }
+
+  .goals-cell { font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; }
+  .goals-total { font-weight: 700; }
+  .goals-sub { color: var(--muted); font-size: 0.65rem; }
+  .over { color: var(--accent4); } .under { color: var(--accent3); } .toss { color: var(--muted); }
+
+  .apuesta-cell { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; font-weight: 700; color: var(--accent); }
+  .apuesta-none { color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+  .err-row { font-size: 0.82rem; color: var(--accent2); }
+  .loading-row { font-size: 0.82rem; color: var(--muted); animation: blink 1s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── PLAYERS TAB ── */
+  .search-row { display: flex; gap: 10px; margin-bottom: 1.5rem; flex-wrap: wrap; align-items: flex-end; }
+  .input-group { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 160px; }
+  .input-group label { font-size: 0.68rem; font-weight: 600; color: var(--text-sub); letter-spacing: 0.05em; text-transform: uppercase; }
+  .input-group input, .input-group select {
+    background: var(--surface); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 14px; border-radius: 8px; font-family: 'Inter', sans-serif; font-size: 0.9rem; outline: none;
+  }
+  .input-group input:focus, .input-group select:focus { border-color: var(--accent); }
+  .empty { text-align: center; padding: 2.5rem; font-size: 0.85rem; color: var(--muted); }
+
+  /* ── GOALS TAB ── */
+  .goals-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 1rem; }
+  .goals-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.1rem 1.3rem; }
+  .gc-nick { font-size: 1rem; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+  .gc-stat { font-size: 0.8rem; display: flex; justify-content: space-between; margin-bottom: 5px; }
+  .gc-label { color: var(--text-sub); }
+  .gc-val { font-weight: 600; }
+  .last-updated { font-family: 'JetBrains Mono', monospace; font-size: 0.62rem; color: var(--muted); margin-top: 1rem; }
+
+  /* ── MODAL ── */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+  .modal { background: var(--surface2); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; width: 420px; max-width: 95vw; box-shadow: var(--shadow); }
+  .modal h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 0.3rem; color: var(--text); }
+  .modal-sub { font-size: 0.8rem; color: var(--text-sub); margin-bottom: 1.5rem; }
+  .modal-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 1rem; }
+  .modal-field label { font-size: 0.68rem; font-weight: 600; color: var(--text-sub); text-transform: uppercase; letter-spacing: 0.05em; }
+  .modal-field input { background: var(--surface); border: 1px solid var(--border); color: var(--text); padding: 11px 14px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 1rem; outline: none; width: 100%; }
+  .modal-field input:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; gap: 10px; margin-top: 1.5rem; }
+
+  /* ── HISTORY ── */
+  .history-filters { display: flex; gap: 8px; margin-bottom: 1.5rem; flex-wrap: wrap; }
+  .filter-btn { font-size: 0.78rem; font-weight: 500; padding: 7px 16px; border-radius: 20px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; transition: all 0.15s; }
+  .filter-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(79,209,165,0.08); }
+  .filter-btn:hover:not(.active) { color: var(--text); border-color: var(--text-sub); }
+  .result-win { color: var(--accent); font-weight: 600; }
+  .result-loss { color: var(--accent2); font-weight: 600; }
+  .result-pending { color: var(--muted); }
+  .btn.win  { background: var(--accent); color: #000; padding: 5px 12px; font-size: 0.68rem; }
+  .btn.loss { background: var(--accent2); color: #fff; padding: 5px 12px; font-size: 0.68rem; }
 </style>
 </head>
 <body>
 <div class="wrapper">
   <header>
-    <div class="logo-main">ESB<span>Scout</span></div>
-    <div class="logo-sub">ESPORTS BATTLE · ANALIZADOR DE TANDAS</div>
+    <div>
+      <div class="logo-main">ESB<span>Scout</span></div>
+      <div class="logo-sub">ESPORTS BATTLE · ANALIZADOR EN TIEMPO REAL</div>
+    </div>
+    <div class="header-right">
+      <div class="nav-links">
+        <a href="index.html" class="nav-link active">📊 Análisis</a>
+        <a href="backtest.html" class="nav-link">🔬 Backtest</a>
+        <a href="backtest-goles.html" class="nav-link">⚽ Backtest Goles</a>
+      </div>
+      <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Cambiar tema">🌙</button>
+      <div class="bankroll-display">
+        <span class="bankroll-label">Bankroll</span>
+        <span class="bankroll-value" id="bankrollDisplay">$0</span>
+      </div>
+    </div>
   </header>
 
-  <div class="hint">
-    Pegá los partidos, uno por línea:<br>
-    <span>chevare vs hit</span><br>
-    <span>pikalicaaa vs cappo</span><br>
-    <span>Totti vs Duka</span>
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('main')">⚡ Tanda</div>
+    <div class="tab" onclick="showTab('goals')">⚽ Goles</div>
+    <div class="tab" onclick="showTab('players')">👥 Jugadores</div>
+    <div class="tab" onclick="showTab('history')">📋 Historial</div>
   </div>
 
-  <textarea id="input" placeholder="jugador1 vs jugador2&#10;jugador3 vs jugador4&#10;..."></textarea>
-  <br>
-  <button class="btn" id="btn" onclick="analyzeAll()">⚡ ANALIZAR →</button>
+  <!-- TAB MAIN -->
+  <div id="tab-main">
+    <div class="hint">
+      Pegá los partidos, uno por línea. La cuota es opcional:<br>
+      <span>Badema vs Hristian05 | 2.35 &nbsp;·&nbsp; Porto (Totti) vs Roma (SpeciAL) | 2.70 &nbsp;·&nbsp; chevare vs hit</span>
+    </div>
+    <textarea id="matchInput" placeholder="jugador1 vs jugador2 | cuota&#10;Equipo (nick1) vs Equipo (nick2) | 1.95&#10;..."></textarea>
+    <div class="controls">
+      <button class="btn" id="analyzeBtn" onclick="analyzeAll()">⚡ ANALIZAR →</button>
+      <button class="btn secondary" onclick="document.getElementById('matchInput').value=''">LIMPIAR</button>
+      <button class="btn secondary" onclick="toggleStrategySettings()">⚙️ ESTRATEGIA</button>
+      <div class="bankroll-input-wrap">
+        <label>Bankroll $</label>
+        <input type="number" id="bankrollInput" value="23984" oninput="updateBankroll()"/>
+      </div>
+    </div>
 
-  <div class="results" id="results"></div>
+    <!-- Panel de configuración de estrategia (oculto por defecto) -->
+    <div id="strategyPanel" style="display:none; margin-top: 1.5rem; padding: 1rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;">
+      <div style="font-size: 0.65rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; font-weight: 600;">⚙️ Parámetros de estrategia</div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+        <div>
+          <div style="font-size: 0.65rem; color: var(--text-sub); margin-bottom: 5px; display: flex; justify-content: space-between;">
+            <span>Diff mínima</span>
+            <span id="diffMinDisplay">12%</span>
+          </div>
+          <input type="range" id="diffMinSlider" min="0" max="25" value="12" oninput="updateStrategyParam('diffMin', this.value)" style="width: 100%; accent-color: var(--accent);">
+          <div style="font-size: 0.6rem; color: var(--text-muted); margin-top: 3px;">Win% entre favorito y rival</div>
+        </div>
+
+        <div>
+          <div style="font-size: 0.65rem; color: var(--text-sub); margin-bottom: 5px; display: flex; justify-content: space-between;">
+            <span>Win% mínimo fav</span>
+            <span id="wrMinDisplay">50%</span>
+          </div>
+          <input type="range" id="wrMinSlider" min="30" max="70" value="50" oninput="updateStrategyParam('wrMin', this.value)" style="width: 100%; accent-color: var(--accent);">
+          <div style="font-size: 0.6rem; color: var(--text-muted); margin-top: 3px;">Histórico mínimo</div>
+        </div>
+
+        <div>
+          <div style="font-size: 0.65rem; color: var(--text-sub); margin-bottom: 5px; display: flex; justify-content: space-between;">
+            <span>Forma reciente</span>
+            <span id="formMinDisplay">52%</span>
+          </div>
+          <input type="range" id="formMinSlider" min="20" max="70" value="52" oninput="updateStrategyParam('formMin', this.value)" style="width: 100%; accent-color: var(--accent);">
+          <div style="font-size: 0.6rem; color: var(--text-muted); margin-top: 3px;">Últimos 30 partidos</div>
+        </div>
+
+        <div>
+          <div style="font-size: 0.65rem; color: var(--text-sub); margin-bottom: 5px; display: flex; justify-content: space-between;">
+            <span>Edge vs odd</span>
+            <span id="edgeMinDisplay">3%</span>
+          </div>
+          <input type="range" id="edgeMinSlider" min="0" max="15" value="3" oninput="updateStrategyParam('edgeMin', this.value)" style="width: 100%; accent-color: var(--accent);">
+          <div style="font-size: 0.6rem; color: var(--text-muted); margin-top: 3px;">Margen de seguridad</div>
+        </div>
+      </div>
+
+      <button class="btn secondary" onclick="resetStrategyParams()" style="margin-top: 1rem; width: 100%;">🔄 RESETEAR A DEFAULTS</button>
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+
+  <!-- TAB GOALS -->
+  <div id="tab-goals" style="display:none">
+    <button class="btn" onclick="loadGoals()" id="goalsBtn">📡 CARGAR DATOS DE GOLES</button>
+    <div id="goalsContent" style="margin-top:1.5rem"></div>
+  </div>
+
+  <!-- TAB PLAYERS -->
+  <div id="tab-players" style="display:none">
+    <div class="search-row">
+      <div class="input-group">
+        <label>Buscar</label>
+        <input type="text" id="searchInput" placeholder="filtrar..." oninput="filterPlayers()"/>
+      </div>
+      <div class="input-group" style="max-width:200px">
+        <label>Ordenar</label>
+        <select id="sortBy" onchange="filterPlayers()">
+          <option value="winRate">Win% partidos</option>
+          <option value="matches">Partidos totales</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Jugador</th><th>Win%</th><th>W/D/L</th><th>Partidos</th><th>Nivel</th></tr></thead>
+        <tbody id="playersBody"><tr><td colspan="6" class="empty">Cargando...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TAB HISTORY -->
+  <div id="tab-history" style="display:none">
+    <div class="history-filters">
+      <button class="filter-btn active" onclick="filterHistory('all', this)">Todas</button>
+      <button class="filter-btn" onclick="filterHistory('pending', this)">Pendientes</button>
+      <button class="filter-btn" onclick="filterHistory('win', this)">Ganadas</button>
+      <button class="filter-btn" onclick="filterHistory('loss', this)">Perdidas</button>
+    </div>
+    <div id="historyContent"></div>
+  </div>
+</div>
+
+<!-- BET MODAL -->
+<div class="modal-overlay" id="betModal" style="display:none" onclick="if(event.target===this)closeBetModal()">
+  <div class="modal">
+    <h3 id="modalTitle">Registrar apuesta</h3>
+    <div class="modal-sub" id="modalSub"></div>
+    <div class="modal-field">
+      <label>Cuota (odd)</label>
+      <input type="number" id="modalOdd" step="0.01" min="1.01" placeholder="ej: 1.85"/>
+    </div>
+    <div class="modal-field">
+      <label>Monto apostado $</label>
+      <input type="number" id="modalAmount" step="1" min="1" placeholder="0"/>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="saveBet()">💾 GUARDAR</button>
+      <button class="btn secondary" onclick="closeBetModal()">CANCELAR</button>
+    </div>
+  </div>
 </div>
 
 <script>
-const BASE = 'https://football.esportsbattle.com/api/participants';
+const PROXY = '/proxy?url=';
+const ESB = 'https://football.esportsbattle.com/api/participants';
+const TC = 'https://www.totalcorner.com/league/view/12995';
 
+let allPlayers = [];
+let goalsData = {};
+let bankroll = 15419.01;
+
+// Parámetros de estrategia (configurables con sliders)
+// Valores óptimos validados en backtest de 1,500 partidos
+let strategyParams = {
+  diffMin: 12,
+  wrMin: 50,
+  formMin: 52,
+  edgeMin: 3
+};
+
+// Cargar parámetros desde la DB (API)
+async function loadStrategyParams() {
+  try {
+    console.log('📊 Cargando configuración desde DB...');
+    const res = await fetch('/api/strategy');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    // Mapear snake_case de DB a camelCase del frontend
+    // Fallbacks a valores óptimos validados en backtest de 1,500 partidos
+    strategyParams = {
+      diffMin: parseFloat(data.diff_min ?? 12),
+      wrMin: parseFloat(data.wr_min ?? 50),
+      formMin: parseFloat(data.form_min ?? 52),
+      edgeMin: parseFloat(data.edge_min ?? 3)
+    };
+
+    console.log('✅ Configuración cargada desde DB:', strategyParams);
+    updateSliderDisplays();
+  } catch(e) {
+    console.error('⚠️ Error cargando configuración de DB, usando valores por defecto:', e.message);
+    // Si falla la DB, usa localStorage como respaldo
+    const saved = localStorage.getItem('strategyParams');
+    if (saved) {
+      strategyParams = JSON.parse(saved);
+      console.log('✅ Configuración cargada desde localStorage:', strategyParams);
+    } else {
+      // Si tampoco hay localStorage, usa valores óptimos
+      strategyParams = { diffMin: 12, wrMin: 50, formMin: 52, edgeMin: 3 };
+      console.log('✅ Usando valores óptimos por defecto:', strategyParams);
+    }
+    updateSliderDisplays();
+  }
+}
+
+async function saveStrategyParams() {
+  try {
+    console.log('💾 Guardando configuración en DB:', strategyParams);
+    const res = await fetch('/api/strategy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        diff_min: strategyParams.diffMin,
+        wr_min: strategyParams.wrMin,
+        form_min: strategyParams.formMin,
+        edge_min: strategyParams.edgeMin,
+        bankroll: bankroll,
+        bet_size: 100, // Por ahora hardcodeado, lo puedes hacer dinámico después
+        odd: 1.85      // Por ahora hardcodeado, lo puedes hacer dinámico después
+      })
+    });
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    console.log('✅ Configuración guardada en DB:', data);
+  } catch(e) {
+    console.error('⚠️ Error guardando en DB, usando localStorage como respaldo:', e.message);
+    // Si falla la DB, guarda en localStorage
+    localStorage.setItem('strategyParams', JSON.stringify(strategyParams));
+    console.log('✅ Configuración guardada en localStorage');
+  }
+}
+
+function updateSliderDisplays() {
+  document.getElementById('diffMinDisplay').textContent = strategyParams.diffMin + '%';
+  document.getElementById('wrMinDisplay').textContent = strategyParams.wrMin + '%';
+  document.getElementById('formMinDisplay').textContent = strategyParams.formMin + '%';
+  document.getElementById('edgeMinDisplay').textContent = strategyParams.edgeMin + '%';
+}
+
+function updateStrategyParam(param, value) {
+  strategyParams[param] = parseFloat(value);
+  updateSliderDisplays();
+  saveStrategyParams();
+}
+
+function resetStrategyParams() {
+  strategyParams = { diffMin: 12, wrMin: 50, formMin: 52, edgeMin: 3 };
+  document.getElementById('diffMinSlider').value = 12;
+  document.getElementById('wrMinSlider').value = 50;
+  document.getElementById('formMinSlider').value = 52;
+  document.getElementById('edgeMinSlider').value = 3;
+  updateSliderDisplays();
+  saveStrategyParams();
+}
+
+function toggleStrategySettings() {
+  const panel = document.getElementById('strategyPanel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── BANKROLL ──────────────────────────────────────────────────
+function updateBankroll() {
+  bankroll = parseFloat(document.getElementById('bankrollInput').value) || 0;
+  document.getElementById('bankrollDisplay').textContent = '$' + bankroll.toLocaleString();
+}
+updateBankroll();
+
+// ── PROXY FETCH ───────────────────────────────────────────────
+async function pFetch(url) {
+  console.log(`🌐 pFetch → ${url.substring(0, 80)}...`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const r = await fetch(PROXY + encodeURIComponent(url), {
+      signal: controller.signal,
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' }
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    console.log(`  ✓ pFetch OK (${JSON.stringify(data).substring(0, 100)}...)`);
+    return data;
+  } catch(e) {
+    console.error(`  ❌ pFetch ERROR: ${e.message}`);
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── RECENT FORM ───────────────────────────────────────────────
+async function getRecentForm(nickname, pages = 4) {
+  console.log(`📈 getRecentForm("${nickname}") - buscando últimas ${pages} páginas`);
+  try {
+    const results = await Promise.all(
+      Array.from({length: pages}, (_, i) =>
+        pFetch(`https://football.esportsbattle.com/api/participants/${nickname}/tournaments?page=${i+1}`)
+      )
+    );
+    console.log(`  ✓ Tournaments encontrados:`, results.flatMap(r => r.tournaments?.length || 0));
+
+    const tournaments = results.flatMap(r => r.tournaments || []).filter(t => t.status_id === 4);
+    console.log(`  ✓ Tournaments finalizados (status_id=4): ${tournaments.length}`);
+
+    const last3 = tournaments.filter(t => t.status_id === 4).slice(0, 6);
+    console.log(`  → Cargando matches de ${last3.length} torneos`);
+
+    const matchData = await Promise.all(
+      last3.map(t => pFetch(`https://football.esportsbattle.com/api/tournaments/${t.id}/matches`))
+    );
+
+    const allMatches = matchData.flat().filter(m =>
+      m.participant1?.nickname === nickname || m.participant2?.nickname === nickname
+    );
+    console.log(`  ✓ Matches donde participa "${nickname}": ${allMatches.length}`);
+
+    let wins = 0, losses = 0, draws = 0, gf = 0, ga = 0;
+    const totales = [];
+    allMatches.forEach(m => {
+      const isP1 = m.participant1?.nickname === nickname;
+      const hg = isP1 ? m.participant1.score : m.participant2.score;
+      const og = isP1 ? m.participant2.score : m.participant1.score;
+      if (hg > og) wins++;
+      else if (hg < og) losses++;
+      else draws++;
+      gf += hg; ga += og;
+      totales.push(hg + og);
+    });
+
+    const total = wins + losses + draws;
+
+    // Over% por línea (semantically correct: over4.5 = t > 4.5)
+    const over = line => total > 0 ? totales.filter(t => t > line).length / total * 100 : 0;
+
+    // Desviación estándar
+    const avgTot = total > 0 ? totales.reduce((a,b) => a+b, 0) / total : 0;
+    const stdDev = total > 1
+      ? Math.sqrt(totales.reduce((s,t) => s + Math.pow(t - avgTot, 2), 0) / (total - 1))
+      : 0;
+
+    const result = {
+      recentWinPct: total > 0 ? (wins / total * 100) : 0,
+      recentMatches: total,
+      avgGF: total > 0 ? (gf / total) : 0,
+      avgGA: total > 0 ? (ga / total) : 0,
+      avgTotal: avgTot,
+      stdDev: parseFloat(stdDev.toFixed(2)),
+      over45: parseFloat(over(4.5).toFixed(1)),
+      over55: parseFloat(over(5.5).toFixed(1)),
+      over65: parseFloat(over(6.5).toFixed(1)),
+      w: wins, d: draws, l: losses
+    };
+    console.log(`  ✅ getRecentForm("${nickname}") => ${result.recentWinPct.toFixed(1)}% WR (${wins}W/${draws}D/${losses}L)`);
+    return result;
+  } catch(e) {
+    console.error(`  ❌ getRecentForm ERROR: ${e.message}`);
+    return null;
+  }
+}
+
+// ── GOALS ANALYSIS ────────────────────────────────────────────
+function getGoalsAnalysis(form1, form2, oddOver, oddUnder, line) {
+  if (!form1 || !form2) return null;
+
+  // Goles esperados (modelo Dixon-Coles simplificado)
+  const expTotal = (form1.avgGF + form1.avgGA + form2.avgGF + form2.avgGA) / 2;
+
+  // Over% combinado para la línea pedida
+  const lineKey = line === 4 ? 'over45' : line === 5 ? 'over55' : 'over65';
+  const over1 = form1[lineKey] / 100;
+  const over2 = form2[lineKey] / 100;
+  const overPct = Math.sqrt(over1 * over2) * 100; // media geométrica
+  const underPct = 100 - overPct;
+
+  // Confianza estadística — penalizar si pocos partidos o alta stdDev
+  const sampleOk = form1.recentMatches >= 20 && form2.recentMatches >= 20;
+  const stdDevOk = form1.stdDev < 2.5 && form2.stdDev < 2.5;
+  const confidence = sampleOk && stdDevOk ? 'BUENA' : !sampleOk ? 'MUESTRA BAJA' : 'VARIABLE';
+
+  // Edge vs odds
+  let recGoals = null, edgeGoals = 0, goalsOdd = null;
+  if (oddOver) {
+    const implOver = 1 / oddOver * 100;
+    const edgeOver = overPct - implOver;
+    if (edgeOver > 3) {
+      recGoals = `MÁS DE ${line}.5`;
+      edgeGoals = edgeOver;
+      goalsOdd = oddOver;
+    }
+  }
+  if (oddUnder && !recGoals) {
+    const implUnder = 1 / oddUnder * 100;
+    const edgeUnder = underPct - implUnder;
+    if (edgeUnder > 3) {
+      recGoals = `MENOS DE ${line}.5`;
+      edgeGoals = edgeUnder;
+      goalsOdd = oddUnder;
+    }
+  }
+
+  return {
+    expTotal: parseFloat(expTotal.toFixed(1)),
+    overPct: parseFloat(overPct.toFixed(1)),
+    underPct: parseFloat(underPct.toFixed(1)),
+    over1pct: form1[lineKey],
+    over2pct: form2[lineKey],
+    stdDev1: form1.stdDev,
+    stdDev2: form2.stdDev,
+    line,
+    recGoals,
+    edgeGoals: parseFloat(edgeGoals.toFixed(1)),
+    goalsOdd,
+    confidence,
+    sampleOk,
+  };
+}
+
+// ── H2H ───────────────────────────────────────────────────────
+async function getH2H(nick1, nick2, pages = 2) {
+  console.log(`⚔️ getH2H("${nick1}" vs "${nick2}")`);
+  try {
+    const results = await Promise.all(
+      Array.from({length: pages}, (_, i) =>
+        pFetch(`https://football.esportsbattle.com/api/participants/${nick1}/tournaments?page=${i+1}`)
+      )
+    );
+    const tournaments = results.flatMap(r => r.tournaments || []).filter(t => t.status_id === 4);
+    console.log(`  ✓ Tournaments activos: ${tournaments.length}`);
+
+    const matchData = await Promise.all(
+      tournaments.slice(0, 5).map(t =>
+        pFetch(`https://football.esportsbattle.com/api/tournaments/${t.id}/matches`)
+      )
+    );
+
+    const h2hMatches = matchData.flat().filter(m => {
+      const nicks = [m.participant1?.nickname, m.participant2?.nickname];
+      return nicks.includes(nick1) && nicks.includes(nick2);
+    });
+    console.log(`  ✓ H2H matches encontrados: ${h2hMatches.length}`);
+
+    let w1 = 0, w2 = 0, draws = 0;
+    h2hMatches.forEach(m => {
+      const isP1 = m.participant1?.nickname === nick1;
+      const s1 = isP1 ? m.participant1.score : m.participant2.score;
+      const s2 = isP1 ? m.participant2.score : m.participant1.score;
+      if (s1 > s2) w1++;
+      else if (s1 < s2) w2++;
+      else draws++;
+    });
+
+    const total = w1 + w2 + draws;
+    const result = {
+      total,
+      w1, w2, draws,
+      pct1: total > 0 ? (w1 / total * 100) : null,
+      pct2: total > 0 ? (w2 / total * 100) : null,
+    };
+    console.log(`  ✅ getH2H => ${w1}W(${nick1}) / ${w2}W(${nick2}) / ${draws}D`);
+    return result;
+  } catch(e) {
+    console.error(`  ❌ getH2H ERROR: ${e.message}`);
+    return null;
+  }
+}
+
+// ── ANALYZE ───────────────────────────────────────────────────
 function parseInput() {
-  return document.getElementById('input').value
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l.includes('vs'))
-    .map(l => {
-      const parts = l.split(/\s+vs\s+/i);
-      return { p1: parts[0]?.trim(), p2: parts[1]?.trim() };
+  function extractNick(str) {
+    const raw = str.match(/\(([^)]+)\)\s*$/) ? str.match(/\(([^)]+)\)\s*$/)[1].trim() : str.trim();
+    // Buscar en allPlayers ignorando mayúsculas
+    const found = allPlayers.find(p => p.nickname.toLowerCase() === raw.toLowerCase());
+    return found ? found.nickname : raw; // Si lo encuentra, usar el nombre exacto
+  }
+  return document.getElementById('matchInput').value
+    .split('\n').map(l=>l.trim()).filter(l=>l.includes('vs'))
+    .map(l=>{
+      const parts = l.split('|').map(s=>s.trim());
+      const matchPart = parts[0];
+      const p = matchPart.split(/\s+vs\s+/i);
+      return {
+        p1: extractNick(p[0]||''),
+        p2: extractNick(p[1]||''),
+        odd: parts[1] ? parseFloat(parts[1]) : null,
+        oddOver: parts[2] ? parseFloat(parts[2]) : null,
+        oddUnder: parts[3] ? parseFloat(parts[3]) : null
+      };
     })
-    .filter(r => r.p1 && r.p2);
+    .filter(r=>r.p1&&r.p2);
 }
 
 async function analyzeAll() {
   const rows = parseInput();
+  console.log('🎯 ANÁLISIS INICIADO', { cantidadPartidos: rows.length, partidos: rows });
   if (!rows.length) { alert('Ingresá partidos en formato: jugador1 vs jugador2'); return; }
-
-  const btn = document.getElementById('btn');
+  const btn = document.getElementById('analyzeBtn');
   btn.disabled = true; btn.textContent = 'ANALIZANDO...';
 
-  const grid = document.getElementById('results');
-  grid.innerHTML = rows.map((r,i) => `
-    <div class="card loading" id="c${i}">
-      <div class="side"><div class="pname">${r.p1}</div></div>
-      <div class="mid">VS</div>
-      <div class="side right"><div class="pname">${r.p2}</div></div>
-      <div class="rec" style="font-family:'Space Mono',monospace;font-size:0.7rem;color:var(--muted)">...</div>
-    </div>`).join('');
+  const div = document.getElementById('results');
+  div.innerHTML = `
+    <div class="results-header">// resultados</div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Partido</th>
+        <th>Apostar a</th>
+        <th>Win% Hist.</th>
+        <th>Win% Rival</th>
+        <th>Diff</th>
+        <th>Forma reciente</th>
+        <th>H2H</th>
+        <th>Confianza</th>
+        <th>Goles esp.</th>
+        <th>Apuesta</th>
+        <th>+</th>
+      </tr></thead>
+      <tbody id="resultsBody">
+        ${rows.map((r,i) => `<tr class="loading" id="tr${i}"><td colspan="11" class="loading-row">Analizando ${r.p1} vs ${r.p2}...</td></tr>`).join('')}
+      </tbody>
+    </table>
+    </div>`;
 
-  await Promise.allSettled(rows.map((r,i) => fetchAndRender(r, i)));
-
+  // Procesar de a 2 en secuencia para no sobrecargar
+  for (let i = 0; i < rows.length; i += 2) {
+    await Promise.allSettled(rows.slice(i, i+2).map((r,j) => analyzeRow(r, i+j)));
+  }
+  console.log('✅ ANÁLISIS COMPLETADO');
   btn.disabled = false; btn.textContent = '⚡ ANALIZAR →';
 }
 
-async function fetchAndRender(r, i) {
-  const card = document.getElementById(`c${i}`);
+async function analyzeRow(r, i) {
+  const tr = document.getElementById(`tr${i}`);
+  console.log(`📊 ANALIZANDO FILA ${i}:`, r);
   try {
-    const res = await fetch(`${BASE}/${r.p1}/compare/${r.p2}`);
-    if (!res.ok) throw new Error('HTTP '+res.status);
-    const data = await res.json();
-    if (!Array.isArray(data) || data.length < 2) throw new Error('sin datos');
-    render(card, data[0], data[1]);
+    console.log(`  → Fetch compare: ${r.p1} vs ${r.p2}`);
+    const comparePromise = pFetch(`https://football.esportsbattle.com/api/participants/${r.p1}/compare/${r.p2}`);
+    const form1Promise = getRecentForm(r.p1);
+    const form2Promise = getRecentForm(r.p2);
+    const h2hPromise = getH2H(r.p1, r.p2);
+
+    const [compareData, form1, form2, h2h] = await Promise.all([
+      comparePromise,
+      form1Promise,
+      form2Promise,
+      h2hPromise
+    ]);
+
+    console.log(`  ✓ compareData:`, compareData);
+    console.log(`  ✓ form1 (${r.p1}):`, form1);
+    console.log(`  ✓ form2 (${r.p2}):`, form2);
+    console.log(`  ✓ h2h:`, h2h);
+
+    if (!Array.isArray(compareData) || compareData.length < 2 || !compareData[0] || !compareData[1]) {
+      console.error(`  ❌ compareData inválido:`, { isArray: Array.isArray(compareData), length: compareData?.length, p1: compareData?.[0], p2: compareData?.[1] });
+      throw new Error('sin datos');
+    }
+    renderRow(tr, compareData[0], compareData[1], r.odd, form1, form2, h2h, r.oddOver, r.oddUnder);
+    console.log(`  ✅ FILA ${i} RENDERIZADA`);
   } catch(e) {
-    card.classList.replace('loading','error');
-    card.innerHTML = `<div class="err-txt">❌ No se encontró "${r.p1}" vs "${r.p2}" — verificá mayúsculas</div>`;
+    console.error(`  ❌ ERROR FILA ${i}:`, e.message, e);
+    tr.classList.remove('loading');
+    tr.classList.add('error');
+    tr.innerHTML = `<td colspan="11" class="err-row">❌ No encontrado: ${r.p1} vs ${r.p2} — verificá mayúsculas</td>`;
   }
 }
 
-function render(card, p1, p2) {
+function renderRow(tr, p1, p2, inputOdd=null, form1=null, form2=null, h2h=null, oddOver=null, oddUnder=null) {
+  console.log(`🎨 renderRow iniciando:`, { p1Name: p1.nickname, p2Name: p2.nickname, inputOdd, form1, form2, h2h });
   const m1=p1.totalMatches||1, m2=p2.totalMatches||1;
   const w1=p1.totalWin||0, w2=p2.totalWin||0;
-  const l1=p1.totalLose||0, l2=p2.totalLose||0;
-  const d1=p1.totalDraw||0, d2=p2.totalDraw||0;
   const wr1=w1/m1*100, wr2=w2/m2*100;
   const diff=Math.abs(wr1-wr2);
-  const isP1win = wr1 >= wr2;
-  const winner = isP1win ? p1 : p2;
-  const rec = diff < 3 ? 'PASAR' : winner.nickname;
-  const confCls = diff>=8?'c-high':diff>=4?'c-mid':'c-low';
-  const confLbl = diff>=8?'ALTA':diff>=4?'MEDIA':'BAJA';
-  const smallSample = m1<100||m2<100;
+  const isP1=wr1>=wr2;
+  const favNick=isP1?p1.nickname:p2.nickname;
+  const favWr=isP1?wr1:wr2, rivWr=isP1?wr2:wr1;
+  const smallSample=m1<200||m2<200;
 
-  card.classList.remove('loading');
-  card.innerHTML = `
-    <div class="side">
-      <div class="pname ${isP1win?'w':'l'}">${p1.nickname}${isP1win?' 👑':''}</div>
-      <div class="pwr ${isP1win?'w':'l'}">${wr1.toFixed(1)}%</div>
-      <div class="pwdl">${w1.toLocaleString()}W ${d1.toLocaleString()}D ${l1.toLocaleString()}L · ${m1.toLocaleString()}p</div>
-    </div>
-    <div class="mid">VS<small>+${diff.toFixed(1)}%</small></div>
-    <div class="side right">
-      <div class="pname ${!isP1win?'w':'l'}">${p2.nickname}${!isP1win?' 👑':''}</div>
-      <div class="pwr ${!isP1win?'w':'l'}">${wr2.toFixed(1)}%</div>
-      <div class="pwdl">${w2.toLocaleString()}W ${d2.toLocaleString()}D ${l2.toLocaleString()}L · ${m2.toLocaleString()}p</div>
-    </div>
-    <div class="rec">
-      <div class="rec-name ${rec==='PASAR'?'pass':''}">${rec}</div>
-      <span class="conf ${confCls}">${confLbl}</span>
-      ${smallSample?`<div class="warn-small">⚠ muestra chica</div>`:''}
-    </div>`;
+  // H2H
+  const h2hPct = h2h && h2h.total >= 3
+    ? (isP1 ? h2h.pct1 : h2h.pct2)
+    : null;
+  const h2hTotal = h2h?.total || 0;
+
+  // Confianza base (basada en parámetros configurables)
+  let rec, confCls, confLbl, pct;
+  const minDiff = strategyParams.diffMin;
+  const minWr = strategyParams.wrMin;
+  const minEdge = strategyParams.edgeMin;
+
+  // Calcular edge vs odd
+  const impliedProb = inputOdd ? (1/inputOdd*100) : 50;
+  const hasEdge = inputOdd && (favWr >= impliedProb + minEdge);
+
+  // Filtro de edge: sin odd o sin edge suficiente → PASAR
+  if (diff < minDiff || favWr < minWr || (inputOdd && !hasEdge))
+    { rec='PASAR'; confCls='c-low';   confLbl='🔴 PASAR';      pct=0; }
+  else if (diff < minDiff * 2)           { rec=favNick; confCls='c-mhigh'; confLbl='🟠 MEDIA';      pct=0.03; }
+  else if (diff < minDiff * 3.33)        { rec=favNick; confCls='c-high';  confLbl='🟢 ALTA';       pct=0.05; }
+  else                                   { rec=favNick; confCls='c-vhigh'; confLbl='🟢🟢 MUY ALTA'; pct=0.06; }
+
+  // Forma reciente del favorito
+  const favForm = isP1 ? form1 : form2;
+  const formAlert = favForm && Math.abs(favForm.recentWinPct - favWr) > 15;
+
+  // Si forma reciente diverge >15% baja la confianza
+  if (formAlert && rec !== 'PASAR') {
+    if (confCls === 'c-vhigh')      { confCls='c-high';  confLbl='🟢 ALTA ⚠';        pct=0.05; }
+    else if (confCls === 'c-high')  { confCls='c-mhigh'; confLbl='🟠 MEDIA-ALTA ⚠';  pct=0.04; }
+    else if (confCls === 'c-mhigh') { confCls='c-mlow';  confLbl='🟡 MEDIA-BAJA ⚠';  pct=0.03; }
+    else { rec='PASAR'; confCls='c-low'; confLbl='🔴 BAJA ⚠'; pct=0; }
+  }
+
+  // Ajuste por H2H — si el favorito histórico pierde el H2H, bajar confianza
+  if (h2hPct !== null && h2hPct < 40) {
+    if (rec !== 'PASAR' && confCls !== 'c-low') {
+      if (confCls === 'c-vhigh')      { confCls='c-high';  confLbl='🟢 ALTA ⚠H2H'; }
+      else if (confCls === 'c-high')  { confCls='c-mhigh'; confLbl='🟠 MEDIA-ALTA ⚠H2H'; }
+      else if (confCls === 'c-mhigh') { confCls='c-mlow';  confLbl='🟡 MEDIA-BAJA ⚠H2H'; }
+    }
+    if (pct > 0.03) pct -= 0.01;
+  }
+
+  const confText = {'c-low':'BAJA','c-mlow':'MEDIA-BAJA','c-mhigh':'MEDIA-ALTA','c-high':'ALTA','c-vhigh':'MUY ALTA'}[confCls];
+
+  // Goles esperados
+  const goalsLine = 5; // línea por defecto 5.5
+  const goalsAnalysis = getGoalsAnalysis(form1, form2, oddOver, oddUnder, goalsLine);
+
+  let goalsHtml = '—';
+  if (form1 && form2) {
+    const exp = goalsAnalysis?.expTotal ?? (form1.avgTotal/2 + form2.avgTotal/2);
+    const over = goalsAnalysis?.overPct ?? null;
+    const sub = `${form1.avgTotal.toFixed(1)}·${form2.avgTotal.toFixed(1)}`;
+    const overColor = over > 60 ? 'var(--accent)' : over < 40 ? 'var(--accent2)' : 'var(--accent3)';
+    goalsHtml = `
+      <span class="goals-total">${exp.toFixed(1)}</span>
+      <div class="goals-sub">${sub}</div>
+      ${over !== null ? `<div class="goals-sub" style="color:${overColor}">O55: ${over.toFixed(0)}%</div>` : ''}
+    `;
+  }
+
+  // Forma reciente HTML
+  const formHtml = favForm
+    ? `<span class="goals-total" style="color:${favForm.recentWinPct > favWr?'var(--accent)':formAlert?'var(--accent2)':'var(--accent3)'}">${favForm.recentWinPct.toFixed(0)}%</span><div class="goals-sub">${favForm.w}W/${favForm.d}D/${favForm.l}L</div>`
+    : '—';
+
+  // H2H HTML
+  const h2hHtml = h2hPct !== null
+    ? `<span class="goals-total" style="color:${h2hPct>=50?'var(--accent)':h2hPct>=35?'var(--accent3)':'var(--accent2)'}">${h2hPct.toFixed(0)}%</span><div class="goals-sub">${h2hTotal} partidos</div>`
+    : '<span style="color:var(--muted)">sin H2H</span>';
+
+  const apuesta = pct>0 ? `$${Math.floor(bankroll*pct).toLocaleString()}` : '—';
+  const apuestaCls = pct>0 ? 'apuesta-cell' : 'apuesta-none';
+
+  const betBtn = pct>0
+    ? `<td id="betcell${tr.id.replace('tr','')}"><button class="btn secondary" style="padding:5px 10px;font-size:0.6rem" onclick="openBetModal(this)" data-trid="${tr.id.replace('tr','')}" data-p1="${p1.nickname}" data-p2="${p2.nickname}" data-beton="${rec}" data-conf="${confText}" data-wrf="${favWr.toFixed(2)}" data-wrr="${rivWr.toFixed(2)}" data-diff="${diff.toFixed(2)}" data-amt="${Math.floor(bankroll*pct)}" data-odd="${inputOdd||''}">💾</button></td>`
+    : '<td></td>';
+
+  tr.classList.remove('loading');
+  tr.innerHTML = `
+    <td class="mono" style="font-size:0.8rem">${p1.nickname} vs ${p2.nickname}${smallSample?' ⚠':''}</td>
+    <td>${rec==='PASAR'?`<span class="pass-name">PASAR</span>`:`<span class="winner-name">${rec}</span>`}</td>
+    <td><span class="${favWr>45?'wr-good':favWr>38?'wr-mid':'wr-bad'} mono">${favWr.toFixed(1)}%</span></td>
+    <td><span class="mono ${rivWr>45?'wr-good':rivWr>38?'wr-mid':'wr-bad'}">${rivWr.toFixed(1)}%</span></td>
+    <td class="mono" style="font-weight:700">+${diff.toFixed(1)}%</td>
+    <td class="goals-cell">${formHtml}</td>
+    <td class="goals-cell">${h2hHtml}</td>
+    <td><span class="conf-pill ${confCls}">${confLbl}</span></td>
+    <td class="goals-cell">${goalsHtml}</td>
+    <td class="${apuestaCls}">${apuesta}</td>
+    ${betBtn}`;
+  console.log(`✅ renderRow completada:`, { fav: favNick, rec, confCls, confLbl, apuesta, pct });
 }
+
+// ── GOALS DATA FROM TOTALCORNER ───────────────────────────────
+async function loadGoals() {
+  const btn = document.getElementById('goalsBtn');
+  btn.disabled = true; btn.textContent = 'CARGANDO...';
+  const div = document.getElementById('goalsContent');
+  div.innerHTML = '<div class="empty">Consultando totalcorner.com...</div>';
+
+  try {
+    const html = await fetch(PROXY + encodeURIComponent(TC)).then(r=>r.text());
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const rows = doc.querySelectorAll('table tbody tr');
+    const players = [];
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('td');
+      if (cells.length >= 10) {
+        const nick = cells[1]?.textContent?.trim();
+        const avgGF = cells[8]?.textContent?.trim();
+        const avgGA = cells[9]?.textContent?.trim();
+        const mp = cells[2]?.textContent?.trim();
+        const win = cells[3]?.textContent?.trim();
+        if (nick && avgGF && avgGA) {
+          goalsData[nick.toLowerCase()] = { nick, avgGF, avgGA, mp, win };
+          players.push({ nick, avgGF: parseFloat(avgGF)||0, avgGA: parseFloat(avgGA)||0, mp: parseInt(mp)||0, win: parseInt(win)||0 });
+        }
+      }
+    });
+
+    if (!players.length) throw new Error('No se pudieron parsear los datos');
+
+    players.sort((a,b)=>b.avgGF-a.avgGF);
+    div.innerHTML = `
+      <div class="last-updated">// datos de totalcorner.com · ${players.length} jugadores · actualizado ahora</div>
+      <div class="goals-grid">
+        ${players.map(p=>`
+          <div class="goals-card">
+            <div class="gc-nick">${p.nick}</div>
+            <div class="gc-stat"><span class="gc-label">Avg. Goles a favor</span><span class="gc-val" style="color:var(--accent)">${p.avgGF}</span></div>
+            <div class="gc-stat"><span class="gc-label">Avg. Goles en contra</span><span class="gc-val" style="color:var(--accent2)">${p.avgGA}</span></div>
+            <div class="gc-stat"><span class="gc-label">Total goles/partido</span><span class="gc-val">${(p.avgGF+p.avgGA).toFixed(1)}</span></div>
+            <div class="gc-stat"><span class="gc-label">Partidos (48hs)</span><span class="gc-val" style="color:var(--muted)">${p.mp}</span></div>
+          </div>`).join('')}
+      </div>`;
+    btn.textContent = `✓ ${players.length} JUGADORES CARGADOS`;
+  } catch(e) {
+    div.innerHTML = `<div class="empty" style="color:var(--accent2)">Error: ${e.message}</div>`;
+    btn.disabled = false; btn.textContent = '📡 CARGAR DATOS DE GOLES';
+  }
+}
+
+// ── PLAYERS ───────────────────────────────────────────────────
+async function loadAllPlayers() {
+  try {
+    const d = await pFetch(`${ESB}?page=1`);
+    const total = d.totalPages||1;
+    let all = [...(d.participants||[])];
+    const rest = await Promise.allSettled(
+      Array.from({length:total-1},(_,i)=>pFetch(`${ESB}?page=${i+2}`))
+    );
+    rest.forEach(r=>{if(r.status==='fulfilled')all.push(...(r.value.participants||[]));});
+    allPlayers = all.filter(p=>p.nickname&&p.totalMatches);
+    filterPlayers();
+  } catch(e) { console.error('Error loading players', e); }
+}
+
+function filterPlayers() {
+  const q=(document.getElementById('searchInput')?.value||'').toLowerCase();
+  const sort=document.getElementById('sortBy')?.value||'winRate';
+  let list=allPlayers.filter(p=>!q||p.nickname.toLowerCase().includes(q));
+  list.sort((a,b)=>{
+    if(sort==='winRate') return ((b.totalWin||0)/(b.totalMatches||1))-((a.totalWin||0)/(a.totalMatches||1));
+    return (b.totalMatches||0)-(a.totalMatches||0);
+  });
+  const level=(wr,m)=>{
+    if(m>15000&&wr>45)return['ÉLITE','c-vhigh'];
+    if(m>8000&&wr>40)return['PRO','c-high'];
+    if(m>3000&&wr>36)return['AVANZADO','c-mhigh'];
+    if(m>1000)return['INTERMEDIO','c-mlow'];
+    return['NOVATO','c-low'];
+  };
+  const tbody=document.getElementById('playersBody');
+  if(!list.length){tbody.innerHTML='<tr><td colspan="6" class="empty">Sin resultados</td></tr>';return;}
+  tbody.innerHTML=list.map((p,i)=>{
+    const wr=p.totalMatches>0?((p.totalWin||0)/p.totalMatches*100):0;
+    const[lbl,cls]=level(wr,p.totalMatches||0);
+    return`<tr>
+      <td class="mono" style="font-size:0.7rem;color:var(--muted)">${i+1}</td>
+      <td style="font-weight:600">${p.nickname}</td>
+      <td><span class="mono ${wr>45?'wr-good':wr>38?'wr-mid':'wr-bad'}">${wr.toFixed(1)}%</span></td>
+      <td class="mono" style="font-size:0.72rem">
+        <span style="color:var(--accent)">${(p.totalWin||0).toLocaleString()}</span>/
+        <span style="color:var(--muted)">${(p.totalDraw||0).toLocaleString()}</span>/
+        <span style="color:var(--accent2)">${(p.totalLose||0).toLocaleString()}</span>
+      </td>
+      <td class="mono">${(p.totalMatches||0).toLocaleString()}</td>
+      <td><span class="conf-pill ${cls}">${lbl}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+function showTab(name) {
+  ['main','goals','players','history'].forEach(t=>{
+    document.getElementById(`tab-${t}`).style.display=t===name?'block':'none';
+  });
+  document.querySelectorAll('.tab').forEach((el,i)=>{
+    el.classList.toggle('active',['main','goals','players','history'][i]===name);
+  });
+  if (name === 'history') loadHistory();
+}
+
+// ── BETS ──────────────────────────────────────────────────────
+let allBets = [];
+let historyFilter = 'all';
+let currentBetData = null;
+
+function openBetModal(btn) {
+  currentBetData = {
+    _trId: btn.dataset.trid,
+    player1: btn.dataset.p1,
+    player2: btn.dataset.p2,
+    bet_on: btn.dataset.beton,
+    confidence: btn.dataset.conf,
+    win_rate_fav: parseFloat(btn.dataset.wrf),
+    win_rate_riv: parseFloat(btn.dataset.wrr),
+    diff: parseFloat(btn.dataset.diff),
+  };
+  document.getElementById('modalTitle').textContent = `${currentBetData.player1} vs ${currentBetData.player2}`;
+  document.getElementById('modalSub').textContent = `Apostar a: ${currentBetData.bet_on}  ·  Confianza: ${currentBetData.confidence}`;
+  document.getElementById('modalAmount').value = btn.dataset.amt;
+  document.getElementById('modalOdd').value = btn.dataset.odd || '1.85';
+  document.getElementById('betModal').style.display = 'flex';
+}
+
+function closeBetModal() {
+  document.getElementById('betModal').style.display = 'none';
+  currentBetData = null;
+}
+
+async function saveBet() {
+  const odd = parseFloat(document.getElementById('modalOdd').value);
+  const amount = parseFloat(document.getElementById('modalAmount').value);
+  console.log('💾 saveBet → enviando apuesta:', { ...currentBetData, odd, amount });
+  if (isNaN(odd) || odd < 1.01 || isNaN(amount) || amount <= 0) { alert('Ingresá cuota (≥ 1.01) y monto válidos'); return; }
+  try {
+    const payload = { ...currentBetData, odd, amount };
+    console.log('📤 POST /bets con payload:', payload);
+    const r = await fetch('/bets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) {
+      const errText = await r.text();
+      console.error('❌ POST /bets ERROR:', r.status, errText);
+      throw new Error(errText);
+    }
+    const respData = await r.json();
+    console.log('✅ POST /bets OK:', respData);
+
+    // Marcar fila como guardada
+    const trId = currentBetData._trId;
+    if (trId !== undefined) {
+      const tr = document.getElementById(`tr${trId}`);
+      if (tr) {
+        tr.style.borderLeft = '3px solid var(--accent)';
+        const cell = document.getElementById(`betcell${trId}`);
+        if (cell) cell.innerHTML = '<span style="color:var(--accent);font-size:0.78rem;font-weight:600">✓ guardado</span>';
+      }
+    }
+    closeBetModal();
+    if (document.getElementById('tab-history').style.display !== 'none') loadHistory();
+  } catch(e) {
+    console.error('❌ saveBet ERROR:', e.message);
+    alert('Error al guardar: ' + e.message);
+  }
+}
+
+// ── HISTORY ───────────────────────────────────────────────────
+async function loadHistory() {
+  const div = document.getElementById('historyContent');
+  div.innerHTML = '<div class="empty">Cargando...</div>';
+  try {
+    allBets = await fetch('/bets').then(r => r.json());
+    renderHistory(allBets);
+  } catch(e) {
+    div.innerHTML = `<div class="empty" style="color:var(--accent2)">Error al conectar con la DB: ${e.message}</div>`;
+  }
+}
+
+function filterHistory(filter, btn) {
+  historyFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderHistory(allBets);
+}
+
+function confClass(c) {
+  return {'MUY ALTA':'c-vhigh','ALTA':'c-high','MEDIA-ALTA':'c-mhigh','MEDIA-BAJA':'c-mlow','BAJA':'c-low'}[c] || 'c-low';
+}
+
+function renderHistory(bets) {
+  const div = document.getElementById('historyContent');
+  const filtered = historyFilter === 'all' ? bets : bets.filter(b => b.result === historyFilter);
+  if (!filtered.length) { div.innerHTML = '<div class="empty">Sin apuestas para este filtro</div>'; return; }
+  const netProfit = filtered.reduce((s, b) => s + parseFloat(b.profit || 0), 0);
+  const wins = filtered.filter(b => b.result === 'win').length;
+  const losses = filtered.filter(b => b.result === 'loss').length;
+  const settled = wins + losses;
+  const winPct = settled > 0 ? (wins / settled * 100).toFixed(1) : '—';
+  div.innerHTML = `
+    <div class="results-header">
+      // ${filtered.length} apuestas &nbsp;·&nbsp; ${wins}G / ${losses}P (${winPct}%) &nbsp;·&nbsp; neto:
+      <span style="color:${netProfit>=0?'var(--accent)':'var(--accent2)'};font-weight:700"> ${netProfit>=0?'+':''}$${Math.abs(netProfit).toFixed(2)}</span>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr>
+        <th>Fecha</th><th>Partido</th><th>Apuesta</th><th>Cuota</th>
+        <th>Monto</th><th>Confianza</th><th>Resultado</th><th>Ganancia</th><th>Acción</th>
+      </tr></thead>
+      <tbody>
+        ${filtered.map(b => {
+          const date = new Date(b.created_at).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
+          const profit = parseFloat(b.profit || 0);
+          const resultHtml = b.result==='win' ? '<span class="result-win">✓ GANÓ</span>' :
+                              b.result==='loss' ? '<span class="result-loss">✗ PERDIÓ</span>' :
+                              '<span class="result-pending">⏳</span>';
+          const profitHtml = b.result==='pending' ? '<span class="result-pending">—</span>' :
+            `<span class="${b.result==='win'?'result-win':'result-loss'}">${profit>=0?'+':''}$${Math.abs(profit).toFixed(2)}</span>`;
+          const actionHtml = b.result==='pending' ?
+            `<div style="display:flex;gap:5px">
+              <button class="btn win" onclick="updateResult(${b.id},'win',${b.odd},${b.amount})">✓</button>
+              <button class="btn loss" onclick="updateResult(${b.id},'loss',${b.odd},${b.amount})">✗</button>
+            </div>` : '<span class="mono" style="color:var(--muted);font-size:0.7rem">—</span>';
+          return `<tr>
+            <td class="mono" style="font-size:0.7rem;color:var(--muted)">${date}</td>
+            <td style="font-size:0.8rem">${b.player1} vs ${b.player2}</td>
+            <td class="winner-name" style="font-size:0.82rem">${b.bet_on}</td>
+            <td class="mono">${parseFloat(b.odd||0).toFixed(2)}</td>
+            <td class="mono">$${parseFloat(b.amount||0).toLocaleString()}</td>
+            <td><span class="conf-pill ${confClass(b.confidence)}">${b.confidence||'—'}</span></td>
+            <td>${resultHtml}</td>
+            <td>${profitHtml}</td>
+            <td>${actionHtml}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>`;
+}
+
+async function updateResult(id, result, odd, amount) {
+  try {
+    const r = await fetch(`/bets/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ result, odd, amount })
+    });
+    if (!r.ok) throw new Error(await r.text());
+    await loadHistory();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+// ── THEME ─────────────────────────────────────────────────────
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  const next = isDark ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  document.getElementById('themeBtn').textContent = next === 'light' ? '🌙' : '🌙';
+  document.getElementById('themeBtn').title = next === 'light' ? 'Modo oscuro' : 'Modo claro';
+  localStorage.setItem('theme', next);
+}
+
+window.addEventListener('load', () => {
+  const saved = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', saved);
+  document.getElementById('themeBtn').textContent = saved === 'light' ? '☀️' : '🌙';
+  document.getElementById('themeBtn').title = saved === 'light' ? 'Modo oscuro' : 'Modo claro';
+  loadAllPlayers();
+  loadStrategyParams();
+});
 </script>
 </body>
 </html>
