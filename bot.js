@@ -15,6 +15,32 @@ const fetch    = require('node-fetch');
 const cron     = require('node-cron');
 const betsson  = require('./betsson');
 
+const fs   = require('fs');
+const path = require('path');
+
+// ── SISTEMA DE LOGS A ARCHIVO ─────────────────────────────────
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+
+function getLogFile() {
+  const d = new Date();
+  const date = d.toISOString().split('T')[0];
+  return path.join(logsDir, `bot-${date}.log`);
+}
+
+const _origLog   = console.log.bind(console);
+const _origError = console.error.bind(console);
+
+function writeLog(level, args) {
+  const ts  = new Date().toLocaleTimeString('es-AR', { hour12: false });
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  const line = `[${ts}] [${level}] ${msg}\n`;
+  try { fs.appendFileSync(getLogFile(), line, 'utf-8'); } catch(e) {}
+}
+
+console.log = (...args) => { _origLog(...args); writeLog('INFO', args); };
+console.error = (...args) => { _origError(...args); writeLog('ERROR', args); };
+
 // ── CONFIG ────────────────────────────────────────────────────
 const BOT_TOKEN  = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID    = process.env.TELEGRAM_CHAT_ID;
@@ -476,79 +502,120 @@ async function saveSignal(result, bankroll) {
 async function resolveSignals() {
   try {
     const r = await fetch(`${SERVER}/api/signals/pending`);
-    if (!r.ok) return;
+    if (!r.ok) {
+      console.error(`[RESOLVE] ❌ /api/signals/pending devolvió ${r.status}`);
+      return;
+    }
     const pending = await r.json();
-    if (!pending.length) return;
+    if (!pending.length) {
+      console.log(`[RESOLVE] ✓ Sin señales pendientes`);
+      return;
+    }
     console.log(`[RESOLVE] 🔍 ${pending.length} señal(es) pendiente(s)`);
 
     for (const sig of pending) {
       try {
-        // Buscar el partido en torneos recientes del nick1
+        const sigTime = sig.scheduled_at ? new Date(sig.scheduled_at).getTime() : null;
+
+        // No intentar resolver si el partido todavía no debería haber terminado (20 min min)
+        if (sigTime && Date.now() < sigTime + 20 * 60 * 1000) {
+          console.log(`[RESOLVE] ⏰ ${sig.nick1} vs ${sig.nick2} — partido aún no debería haber terminado`);
+          continue;
+        }
+
+        console.log(`[RESOLVE] 🔎 Buscando: ${sig.nick1} vs ${sig.nick2} | scheduled: ${sig.scheduled_at || 'N/A'}`);
+
         const pages = await Promise.all([1,2].map(p =>
           apiFetch(`${ESB}/participants/${sig.nick1}/tournaments?page=${p}`)
         ));
         const tournaments = pages
           .flatMap(r => r.tournaments || [])
           .filter(t => t.status_id === 4)
-          .slice(0, 4);
+          .slice(0, 6);
 
-        let resolved = false;
+        console.log(`[RESOLVE] 📋 Torneos finalizados: ${tournaments.length}`);
+
+        // Recolectar TODOS los partidos candidatos de todos los torneos
+        const candidates = [];
         for (const t of tournaments) {
           const matches = await apiFetch(`${ESB}/tournaments/${t.id}/matches`);
-          const match = matches.find(m => {
+          for (const m of matches) {
             const n1 = m.participant1?.nickname;
             const n2 = m.participant2?.nickname;
-            return (n1 === sig.nick1 && n2 === sig.nick2) ||
-                   (n1 === sig.nick2 && n2 === sig.nick1);
-          });
-          if (!match || match.status_id !== 3) continue;
-
-          const s1 = match.participant1?.score;
-          const s2 = match.participant2?.score;
-          if (s1 === null || s2 === null) continue;
-
-          const totalGoals = s1 + s2;
-          let betResult;
-
-          if (sig.bet_type === 'ganador') {
-            const favNick = sig.bet_on;
-            const favWon = (match.participant1?.nickname === favNick && s1 > s2) ||
-                           (match.participant2?.nickname === favNick && s2 > s1);
-            betResult = favWon ? 'win' : 'loss';
-          } else {
-            betResult = totalGoals > parseFloat(sig.goals_line) ? 'win' : 'loss';
+            const sameNicks = (n1 === sig.nick1 && n2 === sig.nick2) ||
+                              (n1 === sig.nick2 && n2 === sig.nick1);
+            if (!sameNicks) continue;
+            if (m.status_id !== 3) continue;
+            if (m.participant1?.score === null || m.participant2?.score === null) continue;
+            candidates.push(m);
           }
+        }
 
-          await fetch(`${SERVER}/api/signals/${sig.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ result: betResult, score1: s1, score2: s2, total_goals: totalGoals }),
+        if (!candidates.length) {
+          console.log(`[RESOLVE] ⏳ ${sig.nick1} vs ${sig.nick2} — sin resultado en ESB todavía`);
+          continue;
+        }
+
+        // Elegir el candidato cuya fecha sea la más cercana al scheduled_at
+        let bestMatch = candidates[0];
+        if (sigTime && candidates.length > 1) {
+          candidates.sort((a, b) => {
+            const diffA = Math.abs(new Date(a.date).getTime() - sigTime);
+            const diffB = Math.abs(new Date(b.date).getTime() - sigTime);
+            return diffA - diffB;
           });
+          bestMatch = candidates[0];
+          const diffMin = Math.abs(new Date(bestMatch.date).getTime() - sigTime) / 60000;
+          console.log(`[RESOLVE] 🎯 Mejor match: diff ${diffMin.toFixed(0)} min | ${candidates.length} candidatos`);
 
-          const profit = betResult === 'win'
-            ? parseFloat(sig.amount) * (parseFloat(sig.odd) - 1)
-            : -parseFloat(sig.amount);
-          const emoji = betResult === 'win' ? '✅' : '❌';
-          const tipo  = sig.bet_type === 'ganador' ? '🎯 Ganador' : '📊 Goles';
-
-          await sendTelegram([
-            `${emoji} <b>RESULTADO — ${tipo}</b>`,
-            ``,
-            sig.home_team ? `🏟 <b>${sig.home_team} vs ${sig.away_team}</b>` : '',
-            `👤 <b>${sig.nick1} vs ${sig.nick2}</b>`,
-            `⚽ Marcador: <b>${s1} - ${s2}</b>${sig.bet_type === 'goles' ? ` (total ${totalGoals})` : ''}`,
-            `🎯 Apostado a: ${sig.bet_on} @ ${sig.odd}`,
-            `📊 <b>${betResult === 'win' ? 'GANÓ 🎉' : 'PERDIÓ 😞'}</b>`,
-            sig.amount ? `💰 P&amp;L: <b>${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}</b>` : '',
-          ].filter(Boolean).join('\n'));
-
-          console.log(`[RESOLVE] ${emoji} ${sig.nick1} vs ${sig.nick2} | ${sig.bet_type} | ${betResult} | ${s1}-${s2} | P&L: $${profit.toFixed(0)}`);
-          resolved = true;
-          break;
+          // Si el más cercano está a más de 3 horas, es sospechoso
+          if (diffMin > 180) {
+            console.log(`[RESOLVE] ⚠️ ${sig.nick1} vs ${sig.nick2} — match más cercano a ${diffMin.toFixed(0)} min, esperando...`);
+            continue;
+          }
         }
-        if (!resolved) {
-          console.log(`[RESOLVE] ⏳ ${sig.nick1} vs ${sig.nick2} — sin resultado aún`);
+
+        const s1 = bestMatch.participant1?.score;
+        const s2 = bestMatch.participant2?.score;
+        const totalGoals = s1 + s2;
+
+        let betResult;
+        if (sig.bet_type === 'ganador') {
+          const favWon = (bestMatch.participant1?.nickname === sig.bet_on && s1 > s2) ||
+                         (bestMatch.participant2?.nickname === sig.bet_on && s2 > s1);
+          betResult = favWon ? 'win' : 'loss';
+        } else {
+          betResult = totalGoals > parseFloat(sig.goals_line) ? 'win' : 'loss';
         }
+
+        await fetch(`${SERVER}/api/signals/${sig.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ result: betResult, score1: s1, score2: s2, total_goals: totalGoals }),
+        });
+
+        const profit = betResult === 'win'
+          ? parseFloat(sig.amount) * (parseFloat(sig.odd) - 1)
+          : -parseFloat(sig.amount);
+        const emoji = betResult === 'win' ? '✅' : '❌';
+        const tipo  = sig.bet_type === 'ganador' ? '🎯 Ganador' : '📊 Goles';
+        const hora  = sig.scheduled_at
+          ? new Date(sig.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+          : '—';
+
+        await sendTelegram([
+          `${emoji} <b>RESULTADO — ${tipo}</b>`,
+          ``,
+          sig.home_team ? `🏟 <b>${sig.home_team} vs ${sig.away_team}</b>` : '',
+          `👤 <b>${sig.nick1} vs ${sig.nick2}</b>  🕐 ${hora}`,
+          `⚽ Marcador: <b>${s1} - ${s2}</b>${sig.bet_type === 'goles' ? ` (total ${totalGoals})` : ''}`,
+          `🎯 Apostado a: ${sig.bet_on} @ ${sig.odd}`,
+          `📊 <b>${betResult === 'win' ? 'GANÓ 🎉' : 'PERDIÓ 😞'}</b>`,
+          sig.amount ? `💰 P&L: <b>${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}</b>` : '',
+        ].filter(Boolean).join('\n'));
+
+        console.log(`[RESOLVE] ${emoji} ${sig.nick1} vs ${sig.nick2} | ${sig.bet_type} | ${betResult} | ${s1}-${s2} | P&L: $${profit.toFixed(0)}`);
+
       } catch(e) {
         console.error(`[RESOLVE] ❌ señal ${sig.id}: ${e.message}`);
       }
@@ -600,8 +667,8 @@ async function scan() {
     // Bankroll actual
     let bankroll = null;
     try {
-      const br = await fetch(`${SERVER}/api/bankroll`).then(r=>r.json());
-      bankroll = br.bankroll;
+      const bankrollResponse = await fetch(`${SERVER}/api/bankroll`).then(r=>r.json());
+      bankroll = bankrollResponse.bankroll;
     } catch(e) {}
 
     // 2. DESPUÉS: para cada par de Betsson, analizar con ESB de a 2
