@@ -167,7 +167,7 @@ async function getRecentForm(nickname) {
     ));
     const tournaments = pages
       .flatMap(r => r.tournaments || [])
-      .filter(t => t.status_id === 4)
+      .filter(t => t.status_id === 3 || t.status_id === 4)
       .slice(0, 6);
     if (!tournaments.length) return null;
 
