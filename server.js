@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const fetch = require('node-fetch');
 const cors = require('cors');
@@ -16,13 +17,19 @@ if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 // IMPORTANTE: Las rutas API deben estar ANTES del static middleware
 // Sino, express.static intenta servir archivos antes de que las rutas se ejecuten
 
-const pool = new Pool({
-  host: 'localhost',
-  database: 'esbscout',
-  user: 'scout',
-  password: 'scout123',
-  port: 5432,
-});
+// Conexión dinámica: usa DATABASE_URL en Railway, credenciales locales en desarrollo
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false }, // requerido por Railway
+    })
+  : new Pool({
+      host: 'localhost',
+      database: 'esbscout',
+      user: 'scout',
+      password: 'scout123',
+      port: 5432,
+    });
 
 // ── PROXY ─────────────────────────────────────────────────────
 app.get('/proxy', async (req, res) => {
@@ -419,9 +426,10 @@ app.get('/api/signals/pending', async (req, res) => {
 // Esto debe estar al final para que las rutas API tengan prioridad
 app.use(express.static('.'));
 
-app.listen(3000, () => {
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
   console.log('════════════════════════════════════════════════');
-  console.log('🚀 ESB Scout corriendo en http://localhost:3000');
+  console.log(`🚀 ESB Scout corriendo en puerto ${PORT}`);
   console.log('📊 Database: esbscout (user: scout)');
   console.log('📡 Proxy disponible en /proxy');
   console.log('💾 Apuestas disponibles en /bets');
