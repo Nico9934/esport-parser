@@ -15,16 +15,40 @@ const fetch    = require('node-fetch');
 const cron     = require('node-cron');
 const betsson  = require('./betsson');
 
+const fs   = require('fs');
+const path = require('path');
+
+// ── SISTEMA DE LOGS A ARCHIVO ─────────────────────────────────
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+
+function getLogFile() {
+  const d = new Date();
+  const date = d.toISOString().split('T')[0];
+  return path.join(logsDir, `bot-${date}.log`);
+}
+
+const _origLog   = console.log.bind(console);
+const _origError = console.error.bind(console);
+
+function writeLog(level, args) {
+  const ts  = new Date().toLocaleTimeString('es-AR', { hour12: false });
+  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+  const line = `[${ts}] [${level}] ${msg}\n`;
+  try { fs.appendFileSync(getLogFile(), line, 'utf-8'); } catch(e) {}
+}
+
+console.log = (...args) => { _origLog(...args); writeLog('INFO', args); };
+console.error = (...args) => { _origError(...args); writeLog('ERROR', args); };
+
+
 // ── CONFIG ────────────────────────────────────────────────────
 const BOT_TOKEN  = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID    = process.env.TELEGRAM_CHAT_ID;
 const ESB        = 'https://football.esportsbattle.com/api';
 const SCAN_CRON     = '*/7 * * * *';
 const RESOLVE_CRON  = '*/5 * * * *';  // revisar resultados cada 5 min
-// En Railway el server corre como servicio separado
-// Configurar SERVER_URL en variables de entorno de Railway
-// En local usa localhost:3000
-const SERVER = process.env.SERVER_URL || 'http://localhost:3000';
+const SERVER        = 'http://localhost:3000';
 const TIMEOUT_MS    = 15000;
 
 // Parámetros óptimos validados en backtest
@@ -419,7 +443,7 @@ function formatMessage(result, bankroll) {
 
   // Link a Betsson
   if (betssonOdds?.url) {
-    lines.push(`🔗 <a href="https://pba.betsson.bet.ar/apuestas-deportivas/futbol/efootball/batalla-de-efootball-8-minutos-de-juego">Ver en Betsson</a>`);
+    lines.push(`🔗 <a href="${betssonOdds.url}">Ver en Betsson</a>`);
   } else {
     lines.push(`⚠️ <i>Partido no encontrado en Betsson — buscá: ${nick1} vs ${nick2}</i>`);
   }
@@ -479,14 +503,22 @@ async function saveSignal(result, bankroll) {
 async function resolveSignals() {
   try {
     const r = await fetch(`${SERVER}/api/signals/pending`);
-    if (!r.ok) return;
+    if (!r.ok) {
+      console.error(`[RESOLVE] ❌ /api/signals/pending devolvió ${r.status}`);
+      return;
+    }
     const pending = await r.json();
-    if (!pending.length) return;
+    if (!pending.length) {
+      console.log(`[RESOLVE] ✓ Sin señales pendientes`);
+      return;
+    }
     console.log(`[RESOLVE] 🔍 ${pending.length} señal(es) pendiente(s)`);
 
     for (const sig of pending) {
       try {
-        // Buscar el partido en torneos recientes del nick1
+        const sigTime = sig.scheduled_at ? new Date(sig.scheduled_at).getTime() : null;
+        console.log(`[RESOLVE] 🔎 Buscando: ${sig.nick1} vs ${sig.nick2} | scheduled: ${sig.scheduled_at || 'N/A'}`);
+
         const pages = await Promise.all([1,2].map(p =>
           apiFetch(`${ESB}/participants/${sig.nick1}/tournaments?page=${p}`)
         ));
@@ -495,28 +527,51 @@ async function resolveSignals() {
           .filter(t => t.status_id === 4)
           .slice(0, 4);
 
+        console.log(`[RESOLVE] 📋 Torneos finalizados encontrados: ${tournaments.length}`);
+
         let resolved = false;
         for (const t of tournaments) {
           const matches = await apiFetch(`${ESB}/tournaments/${t.id}/matches`);
+
+          // Buscar partido con nicknames correctos Y fecha ±20 min
           const match = matches.find(m => {
             const n1 = m.participant1?.nickname;
             const n2 = m.participant2?.nickname;
-            return (n1 === sig.nick1 && n2 === sig.nick2) ||
-                   (n1 === sig.nick2 && n2 === sig.nick1);
+            const sameNicks = (n1 === sig.nick1 && n2 === sig.nick2) ||
+                              (n1 === sig.nick2 && n2 === sig.nick1);
+            if (!sameNicks) return false;
+            if (sigTime && m.date) {
+              const matchTime = new Date(m.date).getTime();
+              const diffMin   = Math.abs(matchTime - sigTime) / 60000;
+              if (diffMin > 20) {
+                console.log(`[RESOLVE] ⏭️ ${n1} vs ${n2} descartado — diff ${diffMin.toFixed(0)} min`);
+                return false;
+              }
+            }
+            return true;
           });
-          if (!match || match.status_id !== 3) continue;
+
+          if (!match) {
+            console.log(`[RESOLVE] — torneo ${t.id}: no hay partido coincidente`);
+            continue;
+          }
+          if (match.status_id !== 3) {
+            console.log(`[RESOLVE] — partido encontrado pero status_id=${match.status_id} (no finalizado)`);
+            continue;
+          }
 
           const s1 = match.participant1?.score;
           const s2 = match.participant2?.score;
-          if (s1 === null || s2 === null) continue;
+          if (s1 === null || s2 === null) {
+            console.log(`[RESOLVE] — partido sin score todavía`);
+            continue;
+          }
 
           const totalGoals = s1 + s2;
           let betResult;
-
           if (sig.bet_type === 'ganador') {
-            const favNick = sig.bet_on;
-            const favWon = (match.participant1?.nickname === favNick && s1 > s2) ||
-                           (match.participant2?.nickname === favNick && s2 > s1);
+            const favWon = (match.participant1?.nickname === sig.bet_on && s1 > s2) ||
+                           (match.participant2?.nickname === sig.bet_on && s2 > s1);
             betResult = favWon ? 'win' : 'loss';
           } else {
             betResult = totalGoals > parseFloat(sig.goals_line) ? 'win' : 'loss';
@@ -533,16 +588,19 @@ async function resolveSignals() {
             : -parseFloat(sig.amount);
           const emoji = betResult === 'win' ? '✅' : '❌';
           const tipo  = sig.bet_type === 'ganador' ? '🎯 Ganador' : '📊 Goles';
+          const hora  = sig.scheduled_at
+            ? new Date(sig.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
+            : '—';
 
           await sendTelegram([
             `${emoji} <b>RESULTADO — ${tipo}</b>`,
             ``,
             sig.home_team ? `🏟 <b>${sig.home_team} vs ${sig.away_team}</b>` : '',
-            `👤 <b>${sig.nick1} vs ${sig.nick2}</b>`,
+            `👤 <b>${sig.nick1} vs ${sig.nick2}</b>  🕐 ${hora}`,
             `⚽ Marcador: <b>${s1} - ${s2}</b>${sig.bet_type === 'goles' ? ` (total ${totalGoals})` : ''}`,
             `🎯 Apostado a: ${sig.bet_on} @ ${sig.odd}`,
             `📊 <b>${betResult === 'win' ? 'GANÓ 🎉' : 'PERDIÓ 😞'}</b>`,
-            sig.amount ? `💰 P&amp;L: <b>${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}</b>` : '',
+            sig.amount ? `💰 P&L: <b>${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}</b>` : '',
           ].filter(Boolean).join('\n'));
 
           console.log(`[RESOLVE] ${emoji} ${sig.nick1} vs ${sig.nick2} | ${sig.bet_type} | ${betResult} | ${s1}-${s2} | P&L: $${profit.toFixed(0)}`);
@@ -550,7 +608,7 @@ async function resolveSignals() {
           break;
         }
         if (!resolved) {
-          console.log(`[RESOLVE] ⏳ ${sig.nick1} vs ${sig.nick2} — sin resultado aún`);
+          console.log(`[RESOLVE] ⏳ ${sig.nick1} vs ${sig.nick2} — sin resultado en ESB todavía`);
         }
       } catch(e) {
         console.error(`[RESOLVE] ❌ señal ${sig.id}: ${e.message}`);
@@ -731,149 +789,6 @@ async function pollCommands() {
   } catch(e) { /* silenciar */ }
 }
 
-// ── CARGAR NOTIFICADOS DESDE DB AL ARRANCAR ──────────────────
-// Evita repetir notificaciones si el bot se reinicia
-// Carga todos los match_ids ya guardados en bot_signals al Set de memoria
-async function loadNotifiedFromDB() {
-  try {
-    const response = await fetch(`${SERVER}/api/signals`);
-    if (!response.ok) return;
-    const signals = await response.json();
-    signals.forEach(signal => {
-      // El match_id de goles tiene _goles al final, extraer el ID base
-      const baseMatchId = signal.match_id.replace('_goles', '');
-      notifiedMatchIds.add(baseMatchId);
-    });
-    console.log(`[INIT] ✅ ${notifiedMatchIds.size} partidos cargados desde DB (no se repetirán)`);
-  } catch(e) {
-    console.error(`[INIT] ❌ Error cargando historial desde DB: ${e.message}`);
-  }
-}
-
-// ── RESOLVER PENDIENTES AL ARRANCAR ───────────────────────────
-// Si el bot estuvo caído, puede haber señales pendientes vencidas sin resolver
-// Esta función las detecta y las resuelve usando la misma lógica de resolveSignals
-async function resolvePendingOnStartup() {
-  try {
-    const response = await fetch(`${SERVER}/api/signals/pending`);
-    if (!response.ok) return;
-    const pendingSignals = await response.json();
-    if (!pendingSignals.length) {
-      console.log('[INIT] Sin señales pendientes para resolver al arrancar');
-      return;
-    }
-
-    const now = Date.now();
-
-    // Solo intentar resolver las que ya deberían haber terminado
-    // (scheduled_at + 15 minutos ya pasó)
-    const vencidas = pendingSignals.filter(signal => {
-      if (!signal.scheduled_at) return false;
-      const scheduledTime = new Date(signal.scheduled_at).getTime();
-      return now > scheduledTime + 15 * 60 * 1000;
-    });
-
-    if (!vencidas.length) {
-      console.log('[INIT] Sin señales vencidas para resolver');
-      return;
-    }
-
-    console.log(`[INIT] 🔍 Resolviendo ${vencidas.length} señal(es) vencida(s)...`);
-
-    for (const signal of vencidas) {
-      try {
-        const signalScheduledTime = new Date(signal.scheduled_at).getTime();
-
-        // Buscar torneos recientes del nick1
-        const tournamentsPages = await Promise.all([1, 2].map(page =>
-          apiFetch(`${ESB}/participants/${signal.nick1}/tournaments?page=${page}`)
-        ));
-        const completedTournaments = tournamentsPages
-          .flatMap(pageData => pageData.tournaments || [])
-          .filter(t => t.status_id === 4)
-          .slice(0, 4);
-
-        let resolved = false;
-        for (const tournament of completedTournaments) {
-          const matches = await apiFetch(`${ESB}/tournaments/${tournament.id}/matches`);
-
-          // Buscar el partido exacto por nicknames + fecha ±20 min
-          const match = matches.find(m => {
-            const n1 = m.participant1?.nickname;
-            const n2 = m.participant2?.nickname;
-            const sameNicks = (n1 === signal.nick1 && n2 === signal.nick2) ||
-                              (n1 === signal.nick2 && n2 === signal.nick1);
-            if (!sameNicks) return false;
-            if (m.date && signal.scheduled_at) {
-              const matchTime = new Date(m.date).getTime();
-              const diffMin = Math.abs(matchTime - signalScheduledTime) / 60000;
-              if (diffMin > 20) return false;
-            }
-            return true;
-          });
-
-          if (!match || match.status_id !== 3) continue;
-
-          const score1 = match.participant1?.score;
-          const score2 = match.participant2?.score;
-          if (score1 === null || score2 === null) continue;
-
-          // Determinar resultado
-          const totalGoals = score1 + score2;
-          let betOutcome;
-          if (signal.bet_type === 'ganador') {
-            const favWon = (match.participant1?.nickname === signal.bet_on && score1 > score2) ||
-                           (match.participant2?.nickname === signal.bet_on && score2 > score1);
-            betOutcome = favWon ? 'win' : 'loss';
-          } else {
-            betOutcome = totalGoals > parseFloat(signal.goals_line) ? 'win' : 'loss';
-          }
-
-          // Actualizar en DB
-          await fetch(`${SERVER}/api/signals/${signal.id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ result: betOutcome, score1, score2, total_goals: totalGoals }),
-          });
-
-          // Calcular P&L y notificar
-          const profitOrLoss = betOutcome === 'win'
-            ? parseFloat(signal.amount) * (parseFloat(signal.odd) - 1)
-            : -parseFloat(signal.amount);
-          const resultEmoji = betOutcome === 'win' ? '✅' : '❌';
-          const betTypeLabel = signal.bet_type === 'ganador' ? '🎯 Ganador' : '📊 Goles';
-          const matchTime = signal.scheduled_at
-            ? new Date(signal.scheduled_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })
-            : '—';
-
-          await sendTelegram([
-            `${resultEmoji} <b>RESULTADO — ${betTypeLabel}</b>`,
-            ``,
-            signal.home_team ? `🏟 <b>${signal.home_team} vs ${signal.away_team}</b>` : '',
-            `👤 <b>${signal.nick1} vs ${signal.nick2}</b>  🕐 ${matchTime}`,
-            `⚽ Marcador: <b>${score1} - ${score2}</b>${signal.bet_type === 'goles' ? ` (total ${totalGoals})` : ''}`,
-            `🎯 Apostado a: ${signal.bet_on} @ ${signal.odd}`,
-            `📊 <b>${betOutcome === 'win' ? 'GANÓ 🎉' : 'PERDIÓ 😞'}</b>`,
-            signal.amount ? `💰 P&L: <b>${profitOrLoss >= 0 ? '+' : ''}$${profitOrLoss.toFixed(0)}</b>` : '',
-          ].filter(Boolean).join('\n'));
-
-          console.log(`[INIT] ${resultEmoji} ${signal.nick1} vs ${signal.nick2} | ${betOutcome} | ${score1}-${score2} | P&L: $${profitOrLoss.toFixed(0)}`);
-          resolved = true;
-          break;
-        }
-
-        if (!resolved) {
-          console.log(`[INIT] ⏳ ${signal.nick1} vs ${signal.nick2} — sin resultado en ESB todavía`);
-        }
-      } catch(e) {
-        console.error(`[INIT] ❌ señal ${signal.id}: ${e.message}`);
-      }
-    }
-  } catch(e) {
-    console.error(`[INIT] ❌ Error resolviendo pendientes al arrancar: ${e.message}`);
-  }
-}
-
 // ── INICIO ────────────────────────────────────────────────────
 async function main() {
   console.log('════════════════════════════════════════════════');
@@ -897,13 +812,6 @@ async function main() {
     `Comandos: /analizar /odds /resumen /status /limpiar`,
   ].join('\n'));
 
-  // Cargar historial desde DB para no repetir notificaciones al reiniciar
-  await loadNotifiedFromDB();
-
-  // Resolver señales que quedaron pendientes si el bot estuvo caído
-  await resolvePendingOnStartup();
-
-  // Ejecutar primer scan inmediatamente
   await scan();
   cron.schedule(SCAN_CRON, scan);
   cron.schedule(RESOLVE_CRON, resolveSignals);  // resolver resultados cada 5 min

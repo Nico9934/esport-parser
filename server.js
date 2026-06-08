@@ -17,19 +17,13 @@ if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 // IMPORTANTE: Las rutas API deben estar ANTES del static middleware
 // Sino, express.static intenta servir archivos antes de que las rutas se ejecuten
 
-// Conexión dinámica: usa DATABASE_URL en Railway, credenciales locales en desarrollo
-const pool = process.env.DATABASE_URL
-  ? new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }, // requerido por Railway
-    })
-  : new Pool({
-      host: 'localhost',
-      database: 'esbscout',
-      user: 'scout',
-      password: 'scout123',
-      port: 5432,
-    });
+const pool = new Pool({
+  host: 'localhost',
+  database: 'esbscout',
+  user: 'scout',
+  password: 'scout123',
+  port: 5432,
+});
 
 // ── PROXY ─────────────────────────────────────────────────────
 app.get('/proxy', async (req, res) => {
@@ -264,7 +258,7 @@ app.post('/api/strategy', async (req, res) => {
 
 // GET /api/bankroll — calcula el bankroll real desde las apuestas registradas
 // Bankroll inicial hardcodeado: ajustá este valor a tu bankroll de arranque
-const BANKROLL_INICIAL = 24000;
+const BANKROLL_INICIAL = parseFloat(process.env.BANKROLL_INICIAL) || 24000;
  
 app.get('/api/bankroll', async (req, res) => {
   try {
