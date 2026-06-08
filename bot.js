@@ -19,8 +19,10 @@ const betsson  = require('./betsson');
 const BOT_TOKEN  = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID    = process.env.TELEGRAM_CHAT_ID;
 const ESB        = 'https://football.esportsbattle.com/api';
-const SCAN_CRON  = '*/7 * * * *';
-const TIMEOUT_MS = 15000;
+const SCAN_CRON     = '*/7 * * * *';
+const RESOLVE_CRON  = '*/5 * * * *';  // revisar resultados cada 5 min
+const SERVER        = 'http://localhost:3000';
+const TIMEOUT_MS    = 15000;
 
 // Parámetros óptimos validados en backtest
 const STRATEGY_GANADOR = {
@@ -422,39 +424,177 @@ function formatMessage(result, bankroll) {
   return lines.join('\n');
 }
 
+// ── GUARDAR SEÑAL EN DB ───────────────────────────────────────
+async function saveSignal(result, bankroll) {
+  const { nick1, nick2, favNick, rivNick, favWr, rivWr,
+          confGanador, goalsSignal, betssonOdds, scheduledAt } = result;
+  try {
+    const signals = [];
+    if (!confGanador.pass) {
+      signals.push({
+        match_id: result.matchId, nick1, nick2,
+        home_team: betssonOdds?.homeTeam || null,
+        away_team: betssonOdds?.awayTeam || null,
+        bet_type: 'ganador', bet_on: favNick,
+        odd: betssonOdds?.winFav || STRATEGY_GANADOR.simOdd,
+        amount: bankroll ? Math.floor(bankroll * confGanador.pct) : null,
+        confidence: confGanador.confCls,
+        fav_wr: favWr, riv_wr: rivWr,
+        diff: confGanador.diff, edge: confGanador.edge,
+        scheduled_at: scheduledAt,
+      });
+    }
+    if (goalsSignal) {
+      signals.push({
+        match_id: result.matchId + '_goles', nick1, nick2,
+        home_team: betssonOdds?.homeTeam || null,
+        away_team: betssonOdds?.awayTeam || null,
+        bet_type: 'goles', bet_on: `over ${goalsSignal.line}`,
+        odd: goalsSignal.oddOver,
+        amount: bankroll ? Math.floor(bankroll * 0.03) : null,
+        confidence: 'signal',
+        fav_wr: favWr, riv_wr: rivWr,
+        diff: favWr - rivWr, edge: goalsSignal.edge,
+        over_pct: goalsSignal.overGeo, goals_line: goalsSignal.line,
+        scheduled_at: scheduledAt,
+      });
+    }
+    for (const sig of signals) {
+      await fetch(`${SERVER}/api/signals`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sig),
+      });
+    }
+    console.log(`[SIGNALS] ✅ ${signals.length} señal(es) guardada(s): ${nick1} vs ${nick2}`);
+  } catch(e) {
+    console.error(`[SIGNALS] ❌ ${e.message}`);
+  }
+}
+
+// ── RESOLVER SEÑALES PENDIENTES ───────────────────────────────
+async function resolveSignals() {
+  try {
+    const r = await fetch(`${SERVER}/api/signals/pending`);
+    if (!r.ok) return;
+    const pending = await r.json();
+    if (!pending.length) return;
+    console.log(`[RESOLVE] 🔍 ${pending.length} señal(es) pendiente(s)`);
+
+    for (const sig of pending) {
+      try {
+        // Buscar el partido en torneos recientes del nick1
+        const pages = await Promise.all([1,2].map(p =>
+          apiFetch(`${ESB}/participants/${sig.nick1}/tournaments?page=${p}`)
+        ));
+        const tournaments = pages
+          .flatMap(r => r.tournaments || [])
+          .filter(t => t.status_id === 4)
+          .slice(0, 4);
+
+        let resolved = false;
+        for (const t of tournaments) {
+          const matches = await apiFetch(`${ESB}/tournaments/${t.id}/matches`);
+          const match = matches.find(m => {
+            const n1 = m.participant1?.nickname;
+            const n2 = m.participant2?.nickname;
+            return (n1 === sig.nick1 && n2 === sig.nick2) ||
+                   (n1 === sig.nick2 && n2 === sig.nick1);
+          });
+          if (!match || match.status_id !== 3) continue;
+
+          const s1 = match.participant1?.score;
+          const s2 = match.participant2?.score;
+          if (s1 === null || s2 === null) continue;
+
+          const totalGoals = s1 + s2;
+          let betResult;
+
+          if (sig.bet_type === 'ganador') {
+            const favNick = sig.bet_on;
+            const favWon = (match.participant1?.nickname === favNick && s1 > s2) ||
+                           (match.participant2?.nickname === favNick && s2 > s1);
+            betResult = favWon ? 'win' : 'loss';
+          } else {
+            betResult = totalGoals > parseFloat(sig.goals_line) ? 'win' : 'loss';
+          }
+
+          await fetch(`${SERVER}/api/signals/${sig.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result: betResult, score1: s1, score2: s2, total_goals: totalGoals }),
+          });
+
+          const profit = betResult === 'win'
+            ? parseFloat(sig.amount) * (parseFloat(sig.odd) - 1)
+            : -parseFloat(sig.amount);
+          const emoji = betResult === 'win' ? '✅' : '❌';
+          const tipo  = sig.bet_type === 'ganador' ? '🎯 Ganador' : '📊 Goles';
+
+          await sendTelegram([
+            `${emoji} <b>RESULTADO — ${tipo}</b>`,
+            ``,
+            sig.home_team ? `🏟 <b>${sig.home_team} vs ${sig.away_team}</b>` : '',
+            `👤 <b>${sig.nick1} vs ${sig.nick2}</b>`,
+            `⚽ Marcador: <b>${s1} - ${s2}</b>${sig.bet_type === 'goles' ? ` (total ${totalGoals})` : ''}`,
+            `🎯 Apostado a: ${sig.bet_on} @ ${sig.odd}`,
+            `📊 <b>${betResult === 'win' ? 'GANÓ 🎉' : 'PERDIÓ 😞'}</b>`,
+            sig.amount ? `💰 P&amp;L: <b>${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}</b>` : '',
+          ].filter(Boolean).join('\n'));
+
+          console.log(`[RESOLVE] ${emoji} ${sig.nick1} vs ${sig.nick2} | ${sig.bet_type} | ${betResult} | ${s1}-${s2} | P&L: $${profit.toFixed(0)}`);
+          resolved = true;
+          break;
+        }
+        if (!resolved) {
+          console.log(`[RESOLVE] ⏳ ${sig.nick1} vs ${sig.nick2} — sin resultado aún`);
+        }
+      } catch(e) {
+        console.error(`[RESOLVE] ❌ señal ${sig.id}: ${e.message}`);
+      }
+    }
+  } catch(e) {
+    console.error(`[RESOLVE] ❌ Error general: ${e.message}`);
+  }
+}
+
+// ── HELPERS BETSSON ───────────────────────────────────────────
+const extractNick = label => { const m = label?.match(/\(([^)]+)\)/); return m ? m[1].trim() : null; };
+const extractTeam = label => label?.replace(/\s*\([^)]+\)\s*$/, '').trim() || '';
+
 // ── SCAN PRINCIPAL ────────────────────────────────────────────
 async function scan() {
   console.log(`\n[SCAN] 🔍 ${new Date().toLocaleTimeString('es-AR')}`);
 
   try {
-    // Invalidar cache de Betsson al inicio de cada scan
+    // 1. PRIMERO: traer eventos de Betsson — solo analizamos lo apostable
     betsson.invalidateCache();
+    const betssonEvents = await betsson.fetchEvents();
 
-    const pendingMatches = await getTodayMatches();
-    if (!pendingMatches.length) {
-      console.log('[SCAN] Sin partidos pendientes.');
+    if (!betssonEvents.length) {
+      console.log('[SCAN] Sin eventos en Betsson por ahora.');
       return;
     }
+    console.log(`[SCAN] 🎰 Betsson: ${betssonEvents.length} eventos disponibles`);
 
-    // Deduplicar por par (orden insensible)
-    const seen = new Set();
+    // Construir lista de pares desde Betsson
     const uniqueMatches = [];
-    pendingMatches.forEach(m => {
-      const n1 = m.participant1?.nickname;
-      const n2 = m.participant2?.nickname;
-      if (!n1 || !n2) return;
-      const key = [n1,n2].sort().join('|');
-      if (seen.has(key)) return;
-      seen.add(key);
-      const matchId = m.id || key;
+    betssonEvents.forEach(ev => {
+      const p0 = ev.participants?.[0];
+      const p1 = ev.participants?.[1];
+      if (!p0 || !p1) return;
+      const nick1 = extractNick(p0.label);
+      const nick2 = extractNick(p1.label);
+      if (!nick1 || !nick2) return;
+      const matchId = ev.id;
       if (notifiedMatchIds.has(matchId)) return;
       uniqueMatches.push({
-        matchId, nick1: n1, nick2: n2,
-        scheduledAt: m.date || m.scheduled_at || null,
+        matchId, nick1, nick2,
+        scheduledAt: ev.startDate,
       });
     });
 
-    console.log(`[SCAN] 🎮 Pares únicos a analizar: ${uniqueMatches.length}`);
+    console.log(`[SCAN] 🎮 Pares a analizar: ${uniqueMatches.length}`);
     if (!uniqueMatches.length) return;
 
     // Bankroll actual
@@ -464,7 +604,7 @@ async function scan() {
       bankroll = br.bankroll;
     } catch(e) {}
 
-    // Analizar de a 2 en paralelo
+    // 2. DESPUÉS: para cada par de Betsson, analizar con ESB de a 2
     const recommendations = [];
     for (let i = 0; i < uniqueMatches.length; i += 2) {
       const batch = uniqueMatches.slice(i, i+2);
@@ -481,6 +621,7 @@ async function scan() {
     for (const rec of recommendations) {
       const msg = formatMessage(rec, bankroll);
       await sendTelegram(msg);
+      await saveSignal(rec, bankroll);   // guardar en DB para seguimiento
       notifiedMatchIds.add(rec.matchId);
       console.log(`[SCAN] 📩 ${rec.nick1} vs ${rec.nick2}`);
       await new Promise(r => setTimeout(r, 1000));
@@ -551,6 +692,31 @@ async function pollCommands() {
         ].join('\n'));
       }
 
+      // /resumen — ver performance del bot
+      if (text === '/resumen') {
+        try {
+          const r = await fetch(`${SERVER}/api/signals/summary`);
+          const data = await r.json();
+          const t = data.totals;
+          const lines = [
+            `📊 <b>ESBScout Bot — Performance</b>`,
+            ``,
+            `📈 Total señales: ${t.total}  ·  Pendientes: ${t.pending}`,
+            `✅ Wins: ${t.wins}  ·  ❌ Losses: ${t.losses}`,
+            `🎯 Win rate: <b>${t.win_rate ?? '—'}%</b>`,
+            `💰 Profit total: <b>${t.total_profit >= 0 ? '+' : ''}$${t.total_profit}</b>`,
+            `📊 ROI: <b>${t.roi >= 0 ? '+' : ''}${t.roi ?? '—'}%</b>`,
+            ``,
+          ];
+          data.by_type.forEach(bt => {
+            lines.push(`<b>${bt.bet_type.toUpperCase()}</b>: ${bt.wins}W/${bt.losses}L · WR ${bt.win_rate}% · ROI ${bt.roi >= 0 ? '+' : ''}${bt.roi}%`);
+          });
+          await sendTelegram(lines.join('\n'));
+        } catch(e) {
+          await sendTelegram('❌ Error obteniendo resumen: ' + e.message);
+        }
+      }
+
       // /limpiar
       if (text === '/limpiar') {
         const count = notifiedMatchIds.size;
@@ -582,11 +748,12 @@ async function main() {
     `🎯 Ganador: ALTA o MUY ALTA confianza`,
     `📊 Goles: línea real de Betsson + edge calculado`,
     ``,
-    `Comandos: /analizar /odds /status /limpiar`,
+    `Comandos: /analizar /odds /resumen /status /limpiar`,
   ].join('\n'));
 
   await scan();
   cron.schedule(SCAN_CRON, scan);
+  cron.schedule(RESOLVE_CRON, resolveSignals);  // resolver resultados cada 5 min
   setInterval(pollCommands, 3000);
 }
 

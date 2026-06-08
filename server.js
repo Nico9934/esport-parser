@@ -277,6 +277,144 @@ app.get('/api/bankroll', async (req, res) => {
 });
 
 
+// ── BOT SIGNALS API ───────────────────────────────────────────
+
+// POST /api/signals — guardar señal cuando el bot notifica
+app.post('/api/signals', async (req, res) => {
+  const {
+    match_id, esb_tournament_id, nick1, nick2, home_team, away_team,
+    bet_type, bet_on, odd, amount, confidence,
+    fav_wr, riv_wr, diff, edge,
+    over_pct, goals_line, scheduled_at
+  } = req.body;
+
+  if (!match_id || !nick1 || !nick2 || !bet_type || !bet_on) {
+    return res.status(400).json({ error: 'Faltan campos requeridos' });
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO bot_signals
+        (match_id, esb_tournament_id, nick1, nick2, home_team, away_team,
+         bet_type, bet_on, odd, amount, confidence,
+         fav_wr, riv_wr, diff, edge, over_pct, goals_line, scheduled_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       RETURNING *`,
+      [match_id, esb_tournament_id, nick1, nick2, home_team, away_team,
+       bet_type, bet_on, odd, amount, confidence,
+       fav_wr, riv_wr, diff, edge, over_pct, goals_line, scheduled_at]
+    );
+    console.log(`[POST /api/signals] ✅ Señal guardada ID=${result.rows[0].id} | ${nick1} vs ${nick2} | ${bet_type}`);
+    res.json(result.rows[0]);
+  } catch(e) {
+    console.error(`[POST /api/signals] ❌ ERROR: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/signals — historial de señales
+app.get('/api/signals', async (req, res) => {
+  try {
+    const { result: filterResult, bet_type, limit = 100 } = req.query;
+    let query = 'SELECT * FROM bot_signals';
+    const params = [];
+    const conditions = [];
+
+    if (filterResult) { params.push(filterResult); conditions.push(`result = $${params.length}`); }
+    if (bet_type)     { params.push(bet_type);      conditions.push(`bet_type = $${params.length}`); }
+    if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
+
+    query += ` ORDER BY notified_at DESC LIMIT $${params.length + 1}`;
+    params.push(parseInt(limit));
+
+    const r = await pool.query(query, params);
+    res.json(r.rows);
+  } catch(e) {
+    console.error(`[GET /api/signals] ❌ ERROR: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/signals/summary — resumen de performance del bot
+app.get('/api/signals/summary', async (req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM bot_signals_summary');
+    // También traer totales generales
+    const totals = await pool.query(`
+      SELECT
+        COUNT(*)                                           AS total,
+        COUNT(*) FILTER (WHERE result = 'pending')        AS pending,
+        COUNT(*) FILTER (WHERE result = 'win')            AS wins,
+        COUNT(*) FILTER (WHERE result = 'loss')           AS losses,
+        ROUND(
+          COUNT(*) FILTER (WHERE result = 'win')::NUMERIC
+          / NULLIF(COUNT(*) FILTER (WHERE result IN ('win','loss')), 0) * 100, 1
+        )                                                  AS win_rate,
+        ROUND(COALESCE(SUM(profit) FILTER (WHERE result IN ('win','loss')), 0), 2) AS total_profit,
+        ROUND(
+          COALESCE(SUM(profit) FILTER (WHERE result IN ('win','loss')), 0)
+          / NULLIF(SUM(amount) FILTER (WHERE result IN ('win','loss')), 0) * 100, 1
+        )                                                  AS roi
+      FROM bot_signals
+    `);
+    res.json({ by_type: r.rows, totals: totals.rows[0] });
+  } catch(e) {
+    console.error(`[GET /api/signals/summary] ❌ ERROR: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/signals/:id — resolver señal con resultado real
+app.patch('/api/signals/:id', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID inválido' });
+
+  const { result, score1, score2, total_goals } = req.body;
+  if (!['win', 'loss', 'void'].includes(result)) {
+    return res.status(400).json({ error: 'Resultado inválido (win/loss/void)' });
+  }
+
+  try {
+    // Calcular profit según el tipo de apuesta
+    const sig = await pool.query('SELECT * FROM bot_signals WHERE id=$1', [id]);
+    if (!sig.rows.length) return res.status(404).json({ error: 'Señal no encontrada' });
+
+    const signal = sig.rows[0];
+    const profit = result === 'win'
+      ? parseFloat(signal.amount) * (parseFloat(signal.odd) - 1)
+      : result === 'loss' ? -parseFloat(signal.amount) : 0;
+
+    const r = await pool.query(
+      `UPDATE bot_signals
+       SET result=$1, score1=$2, score2=$3, total_goals=$4,
+           profit=$5, resolved_at=NOW()
+       WHERE id=$6 RETURNING *`,
+      [result, score1, score2, total_goals, profit, id]
+    );
+    console.log(`[PATCH /api/signals/${id}] ✅ Resuelto: ${result} | profit: $${profit}`);
+    res.json(r.rows[0]);
+  } catch(e) {
+    console.error(`[PATCH /api/signals/${id}] ❌ ERROR: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/signals/pending — señales pendientes de resolver (para el bot)
+app.get('/api/signals/pending', async (req, res) => {
+  try {
+    const r = await pool.query(`
+      SELECT * FROM bot_signals
+      WHERE result = 'pending'
+        AND notified_at > NOW() - INTERVAL '12 hours'
+      ORDER BY notified_at ASC
+    `);
+    res.json(r.rows);
+  } catch(e) {
+    console.error(`[GET /api/signals/pending] ❌ ERROR: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── STATIC FILES (ÚLTIMO) ──
 // Esto debe estar al final para que las rutas API tengan prioridad
 app.use(express.static('.'));
