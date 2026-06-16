@@ -18,11 +18,7 @@ if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
 // Sino, express.static intenta servir archivos antes de que las rutas se ejecuten
 
 const pool = new Pool({
-  host: 'localhost',
-  database: 'esbscout',
-  user: 'scout',
-  password: 'scout123',
-  port: 5432,
+  connectionString: process.env.DATABASE_URL,
 });
 
 // ── PROXY ─────────────────────────────────────────────────────
@@ -257,20 +253,28 @@ app.post('/api/strategy', async (req, res) => {
 });
 
 // GET /api/bankroll — calcula el bankroll real desde las apuestas registradas
-// Bankroll inicial hardcodeado: ajustá este valor a tu bankroll de arranque
-const BANKROLL_INICIAL = parseFloat(process.env.BANKROLL_INICIAL) || 24000;
- 
+// Bankroll inicial: se toma de la columna bankroll del último registro de strategy_config.
+// Fallback (sin config guardada): env BANKROLL_INICIAL o 24000.
+const BANKROLL_FALLBACK = parseFloat(process.env.BANKROLL_INICIAL) || 24000;
+
 app.get('/api/bankroll', async (req, res) => {
   try {
+    const configResult = await pool.query(
+      'SELECT bankroll FROM strategy_config ORDER BY id DESC LIMIT 1'
+    );
+    const bankrollInicial = configResult.rows.length > 0 && configResult.rows[0].bankroll != null
+      ? parseFloat(configResult.rows[0].bankroll)
+      : BANKROLL_FALLBACK;
+
     const result = await pool.query(`
       SELECT COALESCE(SUM(profit), 0) as total_profit
       FROM bets
       WHERE result IN ('win', 'loss')
     `);
     const profit = parseFloat(result.rows[0].total_profit);
-    const bankroll = BANKROLL_INICIAL + profit;
-    console.log(`[GET /api/bankroll] ✅ Bankroll: $${bankroll.toFixed(2)} (inicial: $${BANKROLL_INICIAL} + profit: $${profit.toFixed(2)})`);
-    res.json({ bankroll: parseFloat(bankroll.toFixed(2)), profit, bankroll_inicial: BANKROLL_INICIAL });
+    const bankroll = bankrollInicial + profit;
+    console.log(`[GET /api/bankroll] ✅ Bankroll: $${bankroll.toFixed(2)} (inicial: $${bankrollInicial} desde strategy_config + profit: $${profit.toFixed(2)})`);
+    res.json({ bankroll: parseFloat(bankroll.toFixed(2)), profit, bankroll_inicial: bankrollInicial });
   } catch(e) {
     console.error(`[GET /api/bankroll] ❌ ERROR DB: ${e.message}`);
     res.status(500).json({ error: e.message });
