@@ -268,15 +268,48 @@ app.get('/api/bankroll', async (req, res) => {
 
     const result = await pool.query(`
       SELECT COALESCE(SUM(profit), 0) as total_profit
-      FROM bets
-      WHERE result IN ('win', 'loss')
+      FROM (
+        SELECT profit FROM bets WHERE result IN ('win', 'loss')
+        UNION ALL
+        SELECT profit FROM bot_signals WHERE bet_placed = true AND result IN ('win', 'loss')
+      ) combined
     `);
     const profit = parseFloat(result.rows[0].total_profit);
     const bankroll = bankrollInicial + profit;
-    console.log(`[GET /api/bankroll] ✅ Bankroll: $${bankroll.toFixed(2)} (inicial: $${bankrollInicial} desde strategy_config + profit: $${profit.toFixed(2)})`);
+    console.log(`[GET /api/bankroll] ✅ Bankroll: $${bankroll.toFixed(2)} (inicial: $${bankrollInicial} + profit: $${profit.toFixed(2)})`);
     res.json({ bankroll: parseFloat(bankroll.toFixed(2)), profit, bankroll_inicial: bankrollInicial });
   } catch(e) {
     console.error(`[GET /api/bankroll] ❌ ERROR DB: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/bankroll — actualizar el bankroll inicial desde el bot
+app.patch('/api/bankroll', async (req, res) => {
+  const amount = parseFloat(req.body.bankroll);
+  if (isNaN(amount) || amount <= 0) return res.status(400).json({ error: 'Monto inválido' });
+
+  try {
+    const existing = await pool.query(
+      'SELECT id, diff_min, wr_min, form_min, edge_min, bet_size, odd FROM strategy_config ORDER BY id DESC LIMIT 1'
+    );
+    let r;
+    if (existing.rows.length > 0) {
+      r = await pool.query(
+        'UPDATE strategy_config SET bankroll=$1, updated_at=NOW() WHERE id=$2 RETURNING *',
+        [amount, existing.rows[0].id]
+      );
+    } else {
+      r = await pool.query(
+        `INSERT INTO strategy_config (diff_min, wr_min, form_min, edge_min, bankroll, bet_size, odd, created_at, updated_at)
+         VALUES (12, 50, 52, 3, $1, 100, 1.85, NOW(), NOW()) RETURNING *`,
+        [amount]
+      );
+    }
+    console.log(`[PATCH /api/bankroll] ✅ Bankroll actualizado a $${amount}`);
+    res.json(r.rows[0]);
+  } catch(e) {
+    console.error(`[PATCH /api/bankroll] ❌ ERROR DB: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });
@@ -400,6 +433,30 @@ app.patch('/api/signals/:id', async (req, res) => {
     res.json(r.rows[0]);
   } catch(e) {
     console.error(`[PATCH /api/signals/${id}] ❌ ERROR: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PATCH /api/signals/:id/bet — marcar si se apostó o no (desde el bot via inline keyboard)
+app.patch('/api/signals/:id/bet', async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID inválido' });
+
+  const { bet_placed } = req.body;
+  if (typeof bet_placed !== 'boolean') {
+    return res.status(400).json({ error: 'bet_placed debe ser boolean' });
+  }
+
+  try {
+    const r = await pool.query(
+      'UPDATE bot_signals SET bet_placed=$1 WHERE id=$2 RETURNING *',
+      [bet_placed, id]
+    );
+    if (!r.rowCount) return res.status(404).json({ error: 'Señal no encontrada' });
+    console.log(`[PATCH /api/signals/${id}/bet] ✅ bet_placed=${bet_placed}`);
+    res.json(r.rows[0]);
+  } catch(e) {
+    console.error(`[PATCH /api/signals/${id}/bet] ❌ ERROR: ${e.message}`);
     res.status(500).json({ error: e.message });
   }
 });

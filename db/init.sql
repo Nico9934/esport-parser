@@ -1,3 +1,6 @@
+-- Agregar columna bet_placed a bot_signals si no existe (para DBs existentes)
+ALTER TABLE bot_signals ADD COLUMN IF NOT EXISTS bet_placed BOOLEAN DEFAULT NULL;
+
 CREATE TABLE IF NOT EXISTS bets (
   id           SERIAL PRIMARY KEY,
   created_at   TIMESTAMP DEFAULT NOW(),

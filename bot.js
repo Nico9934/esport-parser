@@ -1,42 +1,46 @@
 /**
- * ESBScout — Bot de Telegram v3.0
+ * ESBScout — Bot de Telegram v3.1
  * - Odds reales de Betsson integradas (ganador + goles)
- * - Estrategia ganador: diff≥12%, wr≥50%, forma≥52%, edge≥3%
- * - Estrategia goles:   usa la línea real de Betsson, overMin≥60%
- *
- * Setup:
- *   1. npm install node-fetch node-cron dotenv
- *   2. Crear .env con TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID
- *   3. node bot.js
+ * - Estrategia ganador: diff>=12%, wr>=50%, forma>=52%, edge>=3%
+ * - Estrategia goles:   SOLO Over 4.5, exige un jugador ofensivo (over>=70%)
+ *                       y ningun volatil (over>=50%). Mensaje en lenguaje claro.
  */
 
 require('dotenv').config();
 const fetch    = require('node-fetch');
 const cron     = require('node-cron');
 const betsson  = require('./betsson');
+const fs       = require('fs');
+const path     = require('path');
 
-// ── CONFIG ────────────────────────────────────────────────────
+// CONFIG
 const BOT_TOKEN  = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT_ID    = process.env.TELEGRAM_CHAT_ID;
 const ESB        = 'https://football.esportsbattle.com/api';
-const SCAN_CRON     = '*/7 * * * *';
-const RESOLVE_CRON  = '*/5 * * * *';  // revisar resultados cada 5 min
+const SCAN_CRON     = '*/5 * * * *';
+const RESOLVE_CRON  = '*/5 * * * *';
 const SERVER        = 'http://localhost:3000';
 const TIMEOUT_MS    = 15000;
 
-// Parámetros óptimos validados en backtest
 const STRATEGY_GANADOR = {
   diffMin:  12,
   wrMin:    50,
   formMin:  52,
   edgeMin:  3,
-  simOdd:   1.85,   // fallback si Betsson no tiene el partido
+  simOdd:   1.85,
 };
 
-const STRATEGY_GOLES = { overMin: 60, edgeMin: 3, stdDevMax: 25, sampleMin: 10 };
+const STRATEGY_GOLES = {
+  overMin:     60,
+  edgeMin:     3,
+  stdDevMax:   25,
+  sampleMin:   10,
+  maxLine:     4.5,  // NUEVO: solo apostamos Over 4.5 - nada mas alto
+  ofensivoMin: 60,   // NUEVO: el jugador mas ofensivo del par debe superar este %
+  pisoMin:     45,   // NUEVO: el menos ofensivo no puede estar por debajo de esto
+};
 const notifiedMatchIds = new Set();
 
-// ── HELPERS ───────────────────────────────────────────────────
 async function apiFetch(url) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -61,14 +65,53 @@ async function sendTelegram(text) {
       body: JSON.stringify({ chat_id: CHAT_ID, text, parse_mode: 'HTML', disable_web_page_preview: true }),
     });
     const data = await r.json();
-    if (!data.ok) console.error('[TG] ❌', data.description);
-    else          console.log('[TG] ✅ Enviado');
+    if (!data.ok) console.error('[TG] ', data.description);
+    else          console.log('[TG] Enviado');
   } catch(e) {
-    console.error('[TG] ❌', e.message);
+    console.error('[TG] ', e.message);
   }
 }
 
-// ── TORNEOS DEL DÍA ───────────────────────────────────────────
+async function sendTelegramWithKeyboard(text, inlineKeyboard) {
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+  try {
+    const r = await fetch(url, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: CHAT_ID, text, parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        reply_markup: { inline_keyboard: inlineKeyboard },
+      }),
+    });
+    const data = await r.json();
+    if (!data.ok) console.error('[TG keyboard] ', data.description);
+    else          console.log('[TG] Enviado con teclado');
+    return data.result?.message_id || null;
+  } catch(e) {
+    console.error('[TG keyboard] ', e.message);
+    return null;
+  }
+}
+
+async function answerCallbackQuery(callbackQueryId, text = '') {
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`;
+  await fetch(url, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ callback_query_id: callbackQueryId, text, show_alert: false }),
+  }).catch(() => {});
+}
+
+async function editMessageReplyMarkup(chatId, messageId, replyMarkup = {}) {
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/editMessageReplyMarkup`;
+  await fetch(url, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId, reply_markup: replyMarkup }),
+  }).catch(() => {});
+}
+
 function getTodayRange() {
   const now = new Date();
   const to  = new Date(now);
@@ -86,12 +129,12 @@ function getTodayRange() {
 
 async function getTodayMatches() {
   const { dateFrom, dateTo } = getTodayRange();
-  console.log(`[SCAN] 📅 ${dateFrom} → ${dateTo}`);
+  console.log(`[SCAN] ${dateFrom} -> ${dateTo}`);
   try {
     const params = new URLSearchParams({ page: 1, dateFrom, dateTo });
     const data = await apiFetch(`${ESB}/tournaments?${params}`);
     const tournaments = data.tournaments || [];
-    console.log(`[SCAN] 📋 Torneos: ${tournaments.length}`);
+    console.log(`[SCAN] Torneos: ${tournaments.length}`);
 
     const allMatches = [];
     await Promise.allSettled(
@@ -103,12 +146,10 @@ async function getTodayMatches() {
       })
     );
 
-    // Status breakdown para debug
     const sc = {};
     allMatches.forEach(m => { const s = m.status_id ?? 'null'; sc[s] = (sc[s]||0)+1; });
-    console.log(`[SCAN] 📊 status_id:`, JSON.stringify(sc));
+    console.log(`[SCAN] status_id:`, JSON.stringify(sc));
 
-    // Pendientes: status_id !== 3 y !== 4, con score null o fecha futura
     const pending = allMatches.filter(m => {
       if (!m.participant1?.nickname || !m.participant2?.nickname) return false;
       if (m.status_id === 3 || m.status_id === 4) return false;
@@ -119,15 +160,14 @@ async function getTodayMatches() {
       return false;
     });
 
-    console.log(`[SCAN] 🎮 Pendientes: ${pending.length}/${allMatches.length}`);
+    console.log(`[SCAN] Pendientes: ${pending.length}/${allMatches.length}`);
     return pending;
   } catch(e) {
-    console.error('[SCAN] ❌', e.message);
+    console.error('[SCAN] ', e.message);
     return [];
   }
 }
 
-// ── FORMA RECIENTE ────────────────────────────────────────────
 async function getRecentForm(nickname) {
   try {
     const pages = await Promise.all([1,2,3,4].map(p =>
@@ -176,26 +216,24 @@ async function getRecentForm(nickname) {
   } catch(e) { return null; }
 }
 
-// ── ESTRATEGIA GANADOR ────────────────────────────────────────
 function getConfidenceGanador(favWr, rivWr, favForm, favNick, rivNick, betssonOdds) {
   const { diffMin, wrMin, formMin, edgeMin, simOdd } = STRATEGY_GANADOR;
   const diff = favWr - rivWr;
 
-  // Usar odd real de Betsson si está disponible, sino fallback
   const oddFav = betssonOdds?.winFav || simOdd;
   const impliedProb = 1 / oddFav * 100;
   const edge = favWr - impliedProb;
 
   if (diff < diffMin) {
-    console.log(`[CONF] ❌ ${favNick} vs ${rivNick}: diff=${diff.toFixed(1)}% < ${diffMin}%`);
+    console.log(`[CONF] X ${favNick} vs ${rivNick}: diff=${diff.toFixed(1)}% < ${diffMin}%`);
     return { pass: true };
   }
   if (favWr < wrMin) {
-    console.log(`[CONF] ❌ ${favNick} vs ${rivNick}: favWr=${favWr.toFixed(1)}% < ${wrMin}%`);
+    console.log(`[CONF] X ${favNick} vs ${rivNick}: favWr=${favWr.toFixed(1)}% < ${wrMin}%`);
     return { pass: true };
   }
   if (edge < edgeMin) {
-    console.log(`[CONF] ❌ ${favNick} vs ${rivNick}: edge=${edge.toFixed(1)}% < ${edgeMin}% (odd=${oddFav})`);
+    console.log(`[CONF] X ${favNick} vs ${rivNick}: edge=${edge.toFixed(1)}% < ${edgeMin}% (odd=${oddFav})`);
     return { pass: true };
   }
 
@@ -207,53 +245,67 @@ function getConfidenceGanador(favWr, rivWr, favForm, favNick, rivNick, betssonOd
   if (favForm) {
     const formAlert = Math.abs(favForm.recentWinPct - favWr) > 15;
     if (formAlert) {
-      console.log(`[CONF] ⚠️ ${favNick}: forma diverge (hist=${favWr.toFixed(0)}% vs rec=${favForm.recentWinPct.toFixed(0)}%)`);
+      console.log(`[CONF] ! ${favNick}: forma diverge (hist=${favWr.toFixed(0)}% vs rec=${favForm.recentWinPct.toFixed(0)}%)`);
       if      (confCls === 'vhigh') { confCls = 'high';  pct = 0.05; }
       else if (confCls === 'high')  { confCls = 'mhigh'; pct = 0.04; }
       else return { pass: true };
     }
     if (favForm.recentWinPct < formMin) {
-      console.log(`[CONF] ❌ ${favNick}: forma=${favForm.recentWinPct.toFixed(1)}% < ${formMin}%`);
+      console.log(`[CONF] X ${favNick}: forma=${favForm.recentWinPct.toFixed(1)}% < ${formMin}%`);
       return { pass: true };
     }
   } else {
-    console.log(`[CONF] ⚠️ ${favNick}: sin forma, bajando confianza`);
+    console.log(`[CONF] ! ${favNick}: sin forma, bajando confianza`);
     if      (confCls === 'vhigh') { confCls = 'high';  pct = 0.05; }
     else if (confCls === 'high')  { confCls = 'mhigh'; pct = 0.03; }
     else return { pass: true };
   }
 
   if (confCls === 'mhigh') {
-    console.log(`[CONF] ⏭️ ${favNick} vs ${rivNick}: MEDIA-ALTA, skip`);
+    console.log(`[CONF] skip ${favNick} vs ${rivNick}: MEDIA-ALTA`);
     return { pass: true };
   }
 
-  console.log(`[CONF] ✅ ${favNick} vs ${rivNick}: ${confCls} diff=${diff.toFixed(1)}% edge=${edge.toFixed(1)}%`);
-  const labels = { vhigh: '🟢🟢 MUY ALTA', high: '🟢 ALTA' };
+  console.log(`[CONF] OK ${favNick} vs ${rivNick}: ${confCls} diff=${diff.toFixed(1)}% edge=${edge.toFixed(1)}%`);
+  const labels = { vhigh: 'MUY ALTA', high: 'ALTA' };
   return { pass: false, confCls, pct, label: labels[confCls], diff, edge, oddUsed: oddFav };
 }
 
-// ── ESTRATEGIA GOLES ──────────────────────────────────────────
-// Usa la línea REAL de Betsson en vez de asumir siempre 5.5
+// ESTRATEGIA GOLES - solo Over 4.5 + filtro por jugador
 function getGoalsSignal(form1, form2, betssonOdds) {
-  const { overMin, edgeMin, stdDevMax, sampleMin } = STRATEGY_GOLES;
+  const { overMin, edgeMin, stdDevMax, sampleMin,
+          maxLine, ofensivoMin, pisoMin } = STRATEGY_GOLES;
 
   if (!form1 || !form2) return null;
   if (form1.recentMatches < sampleMin || form2.recentMatches < sampleMin) return null;
-
-  // Si no hay odds de Betsson, no podemos calcular edge real → skip
   if (!betssonOdds?.goalsLine || !betssonOdds?.oddOver) return null;
 
   const line    = betssonOdds.goalsLine;
   const oddOver = betssonOdds.oddOver;
 
-  // Elegir el Over% correspondiente a la línea real de Betsson
+  // NUEVO: solo Over 4.5 o menos. Descartar lineas mas altas (5.5, 6.5...)
+  if (line > maxLine) {
+    console.log(`[GOLES] X linea ${line} > ${maxLine}: solo apostamos hasta Over ${maxLine}`);
+    return null;
+  }
+
   let o1, o2;
   if      (line <= 4.5) { o1 = form1.over45; o2 = form2.over45; }
   else if (line <= 5.5) { o1 = form1.over55; o2 = form2.over55; }
   else                  { o1 = form1.over65; o2 = form2.over65; }
 
-  // Media geométrica
+  // NUEVO: filtro por perfil de jugador
+  const overMax  = Math.max(o1, o2);
+  const overPiso = Math.min(o1, o2);
+  if (overMax < ofensivoMin) {
+    console.log(`[GOLES] X ningun jugador ofensivo (mejor ${overMax.toFixed(0)}% < ${ofensivoMin}%)`);
+    return null;
+  }
+  if (overPiso < pisoMin) {
+    console.log(`[GOLES] X hay un jugador volatil (peor ${overPiso.toFixed(0)}% < ${pisoMin}%)`);
+    return null;
+  }
+
   const overGeo     = Math.sqrt(o1 * o2);
   const stdDevPair  = (form1.stdDev + form2.stdDev) / 2;
   const impliedProb = 1 / oddOver * 100;
@@ -269,15 +321,14 @@ function getGoalsSignal(form1, form2, betssonOdds) {
     o1, o2,
     stdDevPair: parseFloat(stdDevPair.toFixed(1)),
     edge:       parseFloat(edge.toFixed(1)),
+    casaProb:   parseFloat(impliedProb.toFixed(1)),
     oddOver,
     oddUnder:   betssonOdds.oddUnder,
   };
 }
 
-// ── ANALIZAR UN PAR ───────────────────────────────────────────
 async function analyzePair(nick1, nick2, matchId, scheduledAt) {
   try {
-    // Win rates históricos
     const compare = await apiFetch(`${ESB}/participants/${nick1}/compare/${nick2}`);
     if (!Array.isArray(compare) || compare.length < 2 || !compare[0] || !compare[1]) return null;
 
@@ -293,14 +344,12 @@ async function analyzePair(nick1, nick2, matchId, scheduledAt) {
 
     console.log(`[ANALYZE] ${nick1}(${wr1.toFixed(1)}%) vs ${nick2}(${wr2.toFixed(1)}%)`);
 
-    // Forma reciente + Betsson en paralelo
     const [favForm, rivForm, betssonRaw] = await Promise.all([
       getRecentForm(favNick),
       getRecentForm(rivNick),
       betsson.getMatchOdds(nick1, nick2),
     ]);
 
-    // Normalizar odds de Betsson en perspectiva del favorito
     let betssonOdds = null;
     if (betssonRaw) {
       const favIsNick1 = favNick.toLowerCase() === nick1.toLowerCase();
@@ -333,12 +382,17 @@ async function analyzePair(nick1, nick2, matchId, scheduledAt) {
       betssonOdds,
     };
   } catch(e) {
-    console.error(`[ANALYZE] ❌ ${nick1} vs ${nick2}: ${e.message}`);
+    console.error(`[ANALYZE] ${nick1} vs ${nick2}: ${e.message}`);
     return null;
   }
 }
 
-// ── FORMATEAR MENSAJE ─────────────────────────────────────────
+function describeRegularidad(sd) {
+  if (sd <= 2.5) return 'alta - marcadores parejos, pocas sorpresas';
+  if (sd <= 3.5) return 'media - algo de variacion entre partidos';
+  return 'baja - marcadores muy variables';
+}
+
 function formatMessage(result, bankroll) {
   const { nick1, nick2, favNick, rivNick, favWr, rivWr,
           favForm, rivForm, confGanador, goalsSignal,
@@ -346,83 +400,89 @@ function formatMessage(result, bankroll) {
 
   const hora = scheduledAt
     ? new Date(scheduledAt).toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit', hour12:false})
-    : '—';
+    : '-';
 
   const lines = [];
 
-  // Cabecera — con equipos si Betsson los tiene
   if (betssonOdds?.homeTeam && betssonOdds?.awayTeam) {
     lines.push(`🏟 <b>${betssonOdds.homeTeam} vs ${betssonOdds.awayTeam}</b>`);
   }
   lines.push(`👤 <b>${nick1} vs ${nick2}</b>  🕐 ${hora}`);
   lines.push('');
 
-  // ── GANADOR ──
+  // GANADOR
   if (!confGanador.pass) {
     const betAmt = bankroll && confGanador.pct > 0
       ? `$${Math.floor(bankroll * confGanador.pct).toLocaleString('es-AR')}`
       : `${(confGanador.pct*100).toFixed(0)}% bankroll`;
 
     const formStr = favForm
-      ? `${favForm.recentWinPct.toFixed(0)}% (${favForm.w}W/${favForm.d}D/${favForm.l}L · ${favForm.recentMatches}p)`
+      ? `${favForm.recentWinPct.toFixed(0)}% (${favForm.w}W/${favForm.d}D/${favForm.l}L - ${favForm.recentMatches}p)`
       : 'sin datos';
 
-    // Odds de Betsson o aviso de fallback
-    const oddFavStr  = betssonOdds?.winFav  ? betssonOdds.winFav.toFixed(2)  : '—';
-    const oddRivStr  = betssonOdds?.winRiv  ? betssonOdds.winRiv.toFixed(2)  : '—';
-    const oddDrawStr = betssonOdds?.winDraw ? betssonOdds.winDraw.toFixed(2) : '—';
+    const oddFavStr  = betssonOdds?.winFav  ? betssonOdds.winFav.toFixed(2)  : '-';
+    const oddRivStr  = betssonOdds?.winRiv  ? betssonOdds.winRiv.toFixed(2)  : '-';
+    const oddDrawStr = betssonOdds?.winDraw ? betssonOdds.winDraw.toFixed(2) : '-';
     const oddsLine   = betssonOdds
-      ? `Fav: <b>${oddFavStr}</b>  ·  Riv: ${oddRivStr}  ·  Empate: ${oddDrawStr}`
+      ? `Fav: <b>${oddFavStr}</b>  -  Riv: ${oddRivStr}  -  Empate: ${oddDrawStr}`
       : `Odds Betsson: no disponible (usando estimada)`;
 
-    lines.push(`🎯 <b>GANADOR — ${confGanador.label}</b>`);
+    lines.push(`🎯 <b>GANADOR - ${confGanador.label}</b>`);
     lines.push(`   Apostar a: <b>${favNick}</b>`);
-    lines.push(`   Win%: fav ${favWr.toFixed(1)}%  ·  riv ${rivWr.toFixed(1)}%  ·  diff +${confGanador.diff.toFixed(1)}%`);
+    lines.push(`   Gana sus partidos: fav ${favWr.toFixed(0)}%  -  rival ${rivWr.toFixed(0)}%  (diferencia +${confGanador.diff.toFixed(0)}%)`);
     lines.push(`   ${oddsLine}`);
-    lines.push(`   Edge real: <b>+${confGanador.edge.toFixed(1)}%</b>`);
+    lines.push(`   💡 Ventaja sobre la casa: <b>+${confGanador.edge.toFixed(0)}%</b>`);
     lines.push(`   Forma reciente: ${formStr}`);
-    lines.push(`   💰 Sugerido: <b>${betAmt}</b>`);
+    lines.push(`   💰 Apostar: <b>${betAmt}</b>`);
     lines.push('');
   }
 
-  // ── GOLES ──
+  // GOLES (en lenguaje claro)
   if (goalsSignal) {
-    const { line, overGeo, o1, o2, edge, stdDevPair, oddOver, oddUnder } = goalsSignal;
+    const { line, overGeo, o1, o2, edge, stdDevPair, casaProb, oddOver } = goalsSignal;
     const betAmtG = bankroll
       ? `$${Math.floor(bankroll * 0.03).toLocaleString('es-AR')}`
       : '3% bankroll';
 
     const avgPair = (favForm && rivForm)
       ? ((favForm.avgTotal + rivForm.avgTotal) / 2).toFixed(1)
-      : '—';
+      : '-';
 
-    const oddOverStr  = oddOver  ? oddOver.toFixed(2)  : '—';
-    const oddUnderStr = oddUnder ? oddUnder.toFixed(2) : '—';
+    const oddOverStr = oddOver ? oddOver.toFixed(2) : '-';
+    const golesNec   = Math.ceil(line);
 
-    lines.push(`📊 <b>GOLES — Over ${line}</b>`);
-    lines.push(`   Over% geo: <b>${overGeo.toFixed(1)}%</b>  (${favNick}: ${o1.toFixed(0)}% · ${rivNick}: ${o2.toFixed(0)}%)`);
-    lines.push(`   Promedio goles del par: ${avgPair}`);
-    lines.push(`   Betsson: Over <b>${oddOverStr}</b>  ·  Under ${oddUnderStr}`);
-    lines.push(`   Edge real: <b>+${edge.toFixed(1)}%</b>  ·  StdDev: ${stdDevPair.toFixed(1)}`);
-    lines.push(`   💰 Sugerido: <b>${betAmtG}</b>`);
+    lines.push(`📊 <b>GOLES - Over ${line}</b>`);
+    lines.push(`   <i>Apostas a que caen ${golesNec} goles o mas en total</i>`);
+    lines.push('');
+    lines.push(`   ✅ <b>Chance estimada: ${overGeo.toFixed(0)}%</b>`);
+    lines.push(`      ${favNick} pasa esa cantidad en el ${o1.toFixed(0)}% de sus ultimos partidos - ${rivNick} en el ${o2.toFixed(0)}%`);
+    lines.push(`   ⚽ Promedio de goles entre los dos: <b>${avgPair}</b>  (la linea es ${line}, asi que hay margen)`);
+    lines.push(`   💡 Ventaja sobre la casa: <b>+${edge.toFixed(0)}%</b>`);
+    lines.push(`      Betsson lo paga como ${casaProb.toFixed(0)}% probable; segun el historial es ${overGeo.toFixed(0)}%`);
+    lines.push(`   🎚 Regularidad: ${describeRegularidad(stdDevPair)}`);
+    lines.push(`   💵 Betsson paga: <b>${oddOverStr}</b>   -   💰 Apostar: <b>${betAmtG}</b>`);
     lines.push('');
   }
 
-  // Link a Betsson
   if (betssonOdds?.url) {
     lines.push(`🔗 <a href="https://pba.betsson.bet.ar/apuestas-deportivas/customer-favourites/futbol?eventId=${result.matchId}&eti=0">Ver en Betsson</a>`);
   } else {
-    lines.push(`⚠️ <i>Partido no encontrado en Betsson — buscá: ${nick1} vs ${nick2}</i>`);
+    lines.push(`⚠️ <i>Partido no encontrado en Betsson - busca: ${nick1} vs ${nick2}</i>`);
   }
 
   return lines.join('\n');
 }
 
-// ── GUARDAR SEÑAL EN DB ───────────────────────────────────────
 async function saveSignal(result, bankroll) {
   const { nick1, nick2, favNick, rivNick, favWr, rivWr,
           confGanador, goalsSignal, betssonOdds, scheduledAt } = result;
   try {
+    if (bankroll == null) {
+      try {
+        const br = await fetch(`${SERVER}/api/bankroll`).then(r => r.json());
+        bankroll = br.bankroll;
+      } catch(e) {}
+    }
     const signals = [];
     if (!confGanador.pass) {
       signals.push({
@@ -453,40 +513,47 @@ async function saveSignal(result, bankroll) {
         scheduled_at: scheduledAt ? new Date(new Date(scheduledAt).getTime() - 3 * 60 * 60 * 1000).toISOString() : null,
       });
     }
+    const savedSignals = [];
     for (const sig of signals) {
-      await fetch(`${SERVER}/api/signals`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sig),
-      });
+      try {
+        const r = await fetch(`${SERVER}/api/signals`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sig),
+        });
+        const saved = await r.json();
+        savedSignals.push(saved);
+      } catch(e) {
+        savedSignals.push(null);
+      }
     }
-    console.log(`[SIGNALS] ✅ ${signals.length} señal(es) guardada(s): ${nick1} vs ${nick2}`);
+    console.log(`[SIGNALS] ${savedSignals.filter(Boolean).length} senal(es) guardada(s): ${nick1} vs ${nick2}`);
+    return savedSignals.filter(s => s && s.id);
   } catch(e) {
-    console.error(`[SIGNALS] ❌ ${e.message}`);
+    console.error(`[SIGNALS] ${e.message}`);
+    return [];
   }
 }
 
-// ── RESOLVER SEÑALES PENDIENTES ───────────────────────────────
 async function resolveSignals() {
   try {
     const r = await fetch(`${SERVER}/api/signals/pending`);
     if (!r.ok) return;
     const pending = await r.json();
     if (!pending.length) return;
-    console.log(`[RESOLVE] 🔍 ${pending.length} señal(es) pendiente(s)`);
+    console.log(`[RESOLVE] ${pending.length} senal(es) pendiente(s)`);
 
     for (const sig of pending) {
       try {
         const sigTime = sig.scheduled_at ? new Date(sig.scheduled_at).getTime() : null;
         const hora = sig.scheduled_at
           ? new Date(sig.scheduled_at).toLocaleTimeString('es-AR', { hour:'2-digit', minute:'2-digit', hour12:false })
-          : '—';
+          : '-';
 
-        console.log(`[RESOLVE] 🔎 ${sig.nick1} vs ${sig.nick2} | scheduled: ${sig.scheduled_at || 'N/A'}`);
+        console.log(`[RESOLVE] ${sig.nick1} vs ${sig.nick2} | scheduled: ${sig.scheduled_at || 'N/A'}`);
 
-        // Esperar 15 min desde el inicio (partido dura ~10 min + 5 min margen)
         if (sigTime && Date.now() < sigTime + 3 * 60 * 1000) {
-          console.log(`[RESOLVE] ⏰ ${sig.nick1} vs ${sig.nick2} — partido aún en curso`);
+          console.log(`[RESOLVE] ${sig.nick1} vs ${sig.nick2} - partido aun en curso`);
           continue;
         }
 
@@ -498,9 +565,8 @@ async function resolveSignals() {
           .filter(t => t.status_id === 3 || t.status_id === 4)
           .slice(0, 6);
 
-        console.log(`[RESOLVE] 📋 Torneos: ${tournaments.length}`);
+        console.log(`[RESOLVE] Torneos: ${tournaments.length}`);
 
-        // Recolectar TODOS los candidatos con scores válidos
         const candidates = [];
         for (const t of tournaments) {
           const matches = await apiFetch(`${ESB}/tournaments/${t.id}/matches`);
@@ -517,11 +583,10 @@ async function resolveSignals() {
         }
 
         if (!candidates.length) {
-          console.log(`[RESOLVE] ⏳ ${sig.nick1} vs ${sig.nick2} — sin resultado en ESB todavía`);
+          console.log(`[RESOLVE] ${sig.nick1} vs ${sig.nick2} - sin resultado en ESB todavia`);
           continue;
         }
 
-        // Elegir el candidato más cercano al scheduled_at
         let bestMatch = candidates[0];
         if (sigTime && candidates.length > 1) {
           candidates.sort((a, b) =>
@@ -530,9 +595,9 @@ async function resolveSignals() {
           );
           bestMatch = candidates[0];
           const diffMin = Math.abs(new Date(bestMatch.date).getTime() - sigTime) / 60000;
-          console.log(`[RESOLVE] 🎯 Mejor match: diff ${diffMin.toFixed(0)} min | ${candidates.length} candidatos`);
+          console.log(`[RESOLVE] Mejor match: diff ${diffMin.toFixed(0)} min | ${candidates.length} candidatos`);
           if (diffMin > 30) {
-            console.log(`[RESOLVE] ⚠️ ${sig.nick1} vs ${sig.nick2} — diff ${diffMin.toFixed(0)} min, esperando`);
+            console.log(`[RESOLVE] ${sig.nick1} vs ${sig.nick2} - diff ${diffMin.toFixed(0)} min, esperando`);
             continue;
           }
         }
@@ -562,38 +627,41 @@ async function resolveSignals() {
         const emoji = betResult === 'win' ? '✅' : '❌';
         const tipo  = sig.bet_type === 'ganador' ? '🎯 Ganador' : '📊 Goles';
 
+        const pnlLine = sig.bet_placed === false
+          ? `💬 <i>No apostado — señal de referencia</i>`
+          : sig.amount
+            ? `💰 P&L: <b>${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}</b>${sig.bet_placed === null ? ' <i>(confirmar si apostaste)</i>' : ''}`
+            : '';
+
         await sendTelegram([
-          `${emoji} <b>RESULTADO — ${tipo}</b>`,
+          `${emoji} <b>RESULTADO - ${tipo}</b>`,
           ``,
           sig.home_team ? `🏟 <b>${sig.home_team} vs ${sig.away_team}</b>` : '',
           `👤 <b>${sig.nick1} vs ${sig.nick2}</b>  🕐 ${hora}`,
           `⚽ Marcador: <b>${s1} - ${s2}</b>${sig.bet_type === 'goles' ? ` (total ${totalGoals})` : ''}`,
           `🎯 Apostado a: ${sig.bet_on} @ ${sig.odd}`,
-          `📊 <b>${betResult === 'win' ? 'GANÓ 🎉' : 'PERDIÓ 😞'}</b>`,
-          sig.amount ? `💰 P&L: <b>${profit >= 0 ? '+' : ''}$${profit.toFixed(0)}</b>` : '',
+          `📊 <b>${betResult === 'win' ? 'GANO' : 'PERDIO'}</b>`,
+          pnlLine,
         ].filter(Boolean).join('\n'));
 
-        console.log(`[RESOLVE] ${emoji} ${sig.nick1} vs ${sig.nick2} | ${betResult} | ${s1}-${s2} | P&L: $${profit.toFixed(0)}`);
+        console.log(`[RESOLVE] ${sig.nick1} vs ${sig.nick2} | ${betResult} | ${s1}-${s2} | P&L: $${profit.toFixed(0)}`);
 
       } catch(e) {
-        console.error(`[RESOLVE] ❌ señal ${sig.id}: ${e.message}`);
+        console.error(`[RESOLVE] senal ${sig.id}: ${e.message}`);
       }
     }
   } catch(e) {
-    console.error(`[RESOLVE] ❌ Error general: ${e.message}`);
+    console.error(`[RESOLVE] Error general: ${e.message}`);
   }
 }
 
-// ── HELPERS BETSSON ───────────────────────────────────────────
 const extractNick = label => { const m = label?.match(/\(([^)]+)\)/); return m ? m[1].trim() : null; };
 const extractTeam = label => label?.replace(/\s*\([^)]+\)\s*$/, '').trim() || '';
 
-// ── SCAN PRINCIPAL ────────────────────────────────────────────
 async function scan() {
-  console.log(`\n[SCAN] 🔍 ${new Date().toLocaleTimeString('es-AR')}`);
+  console.log(`\n[SCAN] ${new Date().toLocaleTimeString('es-AR')}`);
 
   try {
-    // 1. PRIMERO: traer eventos de Betsson — solo analizamos lo apostable
     betsson.invalidateCache();
     const betssonEvents = await betsson.fetchEvents();
 
@@ -601,9 +669,8 @@ async function scan() {
       console.log('[SCAN] Sin eventos en Betsson por ahora.');
       return;
     }
-    console.log(`[SCAN] 🎰 Betsson: ${betssonEvents.length} eventos disponibles`);
+    console.log(`[SCAN] Betsson: ${betssonEvents.length} eventos disponibles`);
 
-    // Construir lista de pares desde Betsson
     const uniqueMatches = [];
     betssonEvents.forEach(ev => {
       const p0 = ev.participants?.[0];
@@ -620,17 +687,15 @@ async function scan() {
       });
     });
 
-    console.log(`[SCAN] 🎮 Pares a analizar: ${uniqueMatches.length}`);
+    console.log(`[SCAN] Pares a analizar: ${uniqueMatches.length}`);
     if (!uniqueMatches.length) return;
 
-    // Bankroll actual
     let bankroll = null;
     try {
       const br = await fetch('http://localhost:3000/api/bankroll').then(r=>r.json());
       bankroll = br.bankroll;
     } catch(e) {}
 
-    // 2. DESPUÉS: para cada par de Betsson, analizar con ESB de a 2
     const recommendations = [];
     for (let i = 0; i < uniqueMatches.length; i += 2) {
       const batch = uniqueMatches.slice(i, i+2);
@@ -642,40 +707,113 @@ async function scan() {
       });
     }
 
-    console.log(`[SCAN] ✅ Recomendaciones: ${recommendations.length}`);
+    console.log(`[SCAN] Recomendaciones: ${recommendations.length}`);
 
     for (const rec of recommendations) {
       const msg = formatMessage(rec, bankroll);
       await sendTelegram(msg);
-      await saveSignal(rec, bankroll);   // guardar en DB para seguimiento
+      const savedSignals = await saveSignal(rec, bankroll);
       notifiedMatchIds.add(rec.matchId);
-      console.log(`[SCAN] 📩 ${rec.nick1} vs ${rec.nick2}`);
+
+      // Preguntar por cada señal guardada si se apostó
+      for (const sig of savedSignals) {
+        const tipo   = sig.bet_type === 'ganador' ? '🎯 Ganador' : '📊 Goles';
+        const oddStr = sig.odd ? parseFloat(sig.odd).toFixed(2) : '-';
+        const pct    = sig.bet_type === 'ganador' ? rec.confGanador.pct : 0.03;
+        const calcAmt = bankroll ? Math.floor(bankroll * pct) : null;
+        const dispAmt = parseInt(sig.amount) || calcAmt;
+        const amtStr  = dispAmt ? `$${dispAmt.toLocaleString('es-AR')}` : `${(pct * 100).toFixed(0)}% bankroll`;
+        await sendTelegramWithKeyboard(
+          `💬 <b>¿Apostaste?</b>  ${tipo} - <b>${sig.bet_on}</b> @ ${oddStr}  (${amtStr})`,
+          [[
+            { text: '✅ Sí, aposté',  callback_data: `bet_yes_${sig.id}` },
+            { text: '❌ No aposté',   callback_data: `bet_no_${sig.id}`  },
+          ]]
+        );
+      }
+
+      console.log(`[SCAN] ${rec.nick1} vs ${rec.nick2}`);
       await new Promise(r => setTimeout(r, 1000));
     }
 
     if (!recommendations.length) console.log('[SCAN] Sin apuestas recomendadas.');
 
   } catch(e) {
-    console.error('[SCAN] ❌', e.message);
+    console.error('[SCAN] ', e.message);
   }
 }
 
-// ── POLLING DE COMANDOS ───────────────────────────────────────
 let lastUpdateId = 0;
 
 async function pollCommands() {
   try {
-    const url  = `https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?offset=${lastUpdateId+1}&timeout=5`;
-    const data = await fetch(url).then(r=>r.json());
-    if (!data.ok || !data.result.length) return;
+    const params = new URLSearchParams({
+      offset:          lastUpdateId + 1,
+      timeout:         10,
+      allowed_updates: JSON.stringify(['message', 'callback_query']),
+    });
+    const url  = `https://api.telegram.org/bot${BOT_TOKEN}/getUpdates?${params}`;
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    let data;
+    try {
+      data = await fetch(url, { signal: ctrl.signal }).then(r => r.json());
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!data.ok) {
+      if (data.error_code === 409) {
+        // Esperar más que el timeout para que Telegram limpie la sesión anterior
+        await new Promise(r => setTimeout(r, 15000));
+      }
+      console.error(`[POLL] getUpdates error: ${data.error_code} - ${data.description}`);
+      return;
+    }
+    if (!data.result.length) return;
 
     for (const update of data.result) {
       lastUpdateId = update.update_id;
+
+      // ── Inline keyboard callback (¿Apostaste?) ──────────────────
+      const cbq = update.callback_query;
+      if (cbq) {
+        const cbChatId = cbq.message?.chat?.id?.toString();
+        console.log(`[CBQ] data=${cbq.data} | chatId=${cbChatId} | expected=${CHAT_ID}`);
+        if (cbChatId === CHAT_ID) {
+          const cbData = cbq.data || '';
+          if (cbData.startsWith('bet_yes_') || cbData.startsWith('bet_no_')) {
+            const betPlaced = cbData.startsWith('bet_yes_');
+            const sigId     = parseInt(cbData.replace(/^bet_(yes|no)_/, ''), 10);
+            if (!isNaN(sigId)) {
+              try {
+                await fetch(`${SERVER}/api/signals/${sigId}/bet`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ bet_placed: betPlaced }),
+                });
+                await answerCallbackQuery(
+                  cbq.id,
+                  betPlaced ? '✅ Apuesta registrada en el bankroll' : '❌ Señal ignorada'
+                );
+                // Remover botones del mensaje
+                if (cbq.message?.message_id) {
+                  await editMessageReplyMarkup(CHAT_ID, cbq.message.message_id);
+                }
+                console.log(`[CBQ] Señal #${sigId} bet_placed=${betPlaced}`);
+              } catch(e) {
+                console.error(`[CBQ] Error: ${e.message}`);
+              }
+            }
+          }
+        }
+        continue; // los callback queries no tienen .message.text de comandos
+      }
+
+      // ── Comandos de texto ────────────────────────────────────────
       const text   = update.message?.text || '';
       const chatId = update.message?.chat?.id?.toString();
       if (chatId !== CHAT_ID) continue;
 
-      // /analizar Nick1 vs Nick2
       if (text.startsWith('/analizar')) {
         const parts = text.replace('/analizar','').trim().split(/\s+vs\s+/i);
         if (parts.length === 2) {
@@ -685,57 +823,57 @@ async function pollCommands() {
           if (result) await sendTelegram(formatMessage(result, null));
           else await sendTelegram(
             `❌ <b>${n1} vs ${n2}</b> no cumple ninguna estrategia.\n` +
-            `Ganador: diff≥${STRATEGY_GANADOR.diffMin}%, wr≥${STRATEGY_GANADOR.wrMin}%, forma≥${STRATEGY_GANADOR.formMin}%\n` +
-            `Goles: over%≥${STRATEGY_GOLES.overMin}%, edge≥${STRATEGY_GOLES.edgeMin}%`
+            `Ganador: diff>=${STRATEGY_GANADOR.diffMin}%, wr>=${STRATEGY_GANADOR.wrMin}%, forma>=${STRATEGY_GANADOR.formMin}%\n` +
+            `Goles: solo Over ${STRATEGY_GOLES.maxLine}, un jugador ofensivo >=${STRATEGY_GOLES.ofensivoMin}%, ninguno volatil <${STRATEGY_GOLES.pisoMin}%`
           );
         } else {
           await sendTelegram('⚠️ Formato: <code>/analizar Nick1 vs Nick2</code>');
         }
       }
 
-      // /odds — ver tabla de Betsson ahora mismo
       if (text === '/odds') {
         await sendTelegram('🔍 Consultando Betsson...');
         await betsson.debugPrintAll();
         await sendTelegram('✅ Tabla de odds impresa en consola del servidor.');
       }
 
-      // /status
       if (text === '/status') {
         let bankroll = null;
         try { const br = await fetch('http://localhost:3000/api/bankroll').then(r=>r.json()); bankroll = br.bankroll; } catch(e) {}
         await sendTelegram([
-          `📊 <b>ESBScout Bot v3.0</b>`,
+          `📊 <b>ESBScout Bot v3.1</b>`,
           ``,
-          `✅ Activo · escaneo cada 7 min`,
+          `✅ Activo - escaneo cada 7 min`,
           `📋 Partidos notificados: ${notifiedMatchIds.size}`,
           bankroll ? `💰 Bankroll: <b>$${bankroll.toLocaleString('es-AR')}</b>` : `💰 Bankroll: no disponible`,
           ``,
-          `🎯 Ganador: diff≥${STRATEGY_GANADOR.diffMin}% · wr≥${STRATEGY_GANADOR.wrMin}% · forma≥${STRATEGY_GANADOR.formMin}%`,
-          `📊 Goles: over%≥${STRATEGY_GOLES.overMin}% · edge≥${STRATEGY_GOLES.edgeMin}% · stdDev≤${STRATEGY_GOLES.stdDevMax}`,
+          `🎯 Ganador: diff>=${STRATEGY_GANADOR.diffMin}% - wr>=${STRATEGY_GANADOR.wrMin}% - forma>=${STRATEGY_GANADOR.formMin}%`,
+          `📊 Goles: solo Over ${STRATEGY_GOLES.maxLine} - un jugador ofensivo >=${STRATEGY_GOLES.ofensivoMin}% - ninguno <${STRATEGY_GOLES.pisoMin}%`,
           ``,
-          `Comandos: /analizar /odds /limpiar /status`,
+          `Comandos: /analizar /odds /resumen /limpiar /status /bankroll`,
         ].join('\n'));
       }
 
-      // /resumen — ver performance del bot
       if (text === '/resumen') {
         try {
           const r = await fetch(`${SERVER}/api/signals/summary`);
           const data = await r.json();
           const t = data.totals;
+          const fmt  = v  => v != null ? String(v) : '-';
+          const sign = v  => parseFloat(v) >= 0 ? '+' : '';
+          const pct  = v  => v != null ? `${sign(v)}${v}%` : '-';
           const lines = [
-            `📊 <b>ESBScout Bot — Performance</b>`,
+            `📊 <b>ESBScout Bot - Performance</b>`,
             ``,
-            `📈 Total señales: ${t.total}  ·  Pendientes: ${t.pending}`,
-            `✅ Wins: ${t.wins}  ·  ❌ Losses: ${t.losses}`,
-            `🎯 Win rate: <b>${t.win_rate ?? '—'}%</b>`,
-            `💰 Profit total: <b>${t.total_profit >= 0 ? '+' : ''}$${t.total_profit}</b>`,
-            `📊 ROI: <b>${t.roi >= 0 ? '+' : ''}${t.roi ?? '—'}%</b>`,
+            `📈 Total senales: ${fmt(t.total)}  -  Pendientes: ${fmt(t.pending)}`,
+            `✅ Wins: ${fmt(t.wins)}  -  ❌ Losses: ${fmt(t.losses)}`,
+            `🎯 Win rate: <b>${fmt(t.win_rate)}%</b>`,
+            `💰 Profit total: <b>${sign(t.total_profit)}$${fmt(t.total_profit)}</b>`,
+            `📊 ROI: <b>${pct(t.roi)}</b>`,
             ``,
           ];
           data.by_type.forEach(bt => {
-            lines.push(`<b>${bt.bet_type.toUpperCase()}</b>: ${bt.wins}W/${bt.losses}L · WR ${bt.win_rate}% · ROI ${bt.roi >= 0 ? '+' : ''}${bt.roi}%`);
+            lines.push(`<b>${bt.bet_type.toUpperCase()}</b>: ${fmt(bt.wins)}W/${fmt(bt.losses)}L - WR ${fmt(bt.win_rate)}% - ROI ${pct(bt.roi)}`);
           });
           await sendTelegram(lines.join('\n'));
         } catch(e) {
@@ -743,44 +881,122 @@ async function pollCommands() {
         }
       }
 
-      // /limpiar
       if (text === '/limpiar') {
         const count = notifiedMatchIds.size;
         notifiedMatchIds.clear();
         betsson.invalidateCache();
         await sendTelegram(`🧹 Cache limpiada. ${count} IDs borrados.`);
       }
+
+      if (text.startsWith('/bankroll')) {
+        const parts  = text.split(/\s+/);
+        const amount = parseFloat(parts[1]?.replace(',', '.'));
+        if (!isNaN(amount) && amount > 0) {
+          try {
+            const r = await fetch(`${SERVER}/api/bankroll`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ bankroll: amount }),
+            });
+            if (r.ok) {
+              await sendTelegram(`💰 Bankroll actualizado a <b>$${amount.toLocaleString('es-AR')}</b>`);
+            } else {
+              const err = await r.json();
+              await sendTelegram(`❌ Error: ${err.error}`);
+            }
+          } catch(e) {
+            await sendTelegram(`❌ Error actualizando bankroll: ${e.message}`);
+          }
+        } else {
+          // Sin argumento: mostrar bankroll actual
+          try {
+            const br = await fetch(`${SERVER}/api/bankroll`).then(r => r.json());
+            await sendTelegram(
+              `💰 <b>Bankroll actual: $${br.bankroll.toLocaleString('es-AR')}</b>\n` +
+              `   Inicial: $${br.bankroll_inicial.toLocaleString('es-AR')}  |  P&L: ${br.profit >= 0 ? '+' : ''}$${br.profit.toFixed(0)}\n\n` +
+              `Para actualizar: <code>/bankroll 25000</code>`
+            );
+          } catch(e) {
+            await sendTelegram(`⚠️ Uso: <code>/bankroll 25000</code>`);
+          }
+        }
+      }
     }
-  } catch(e) { /* silenciar */ }
+  } catch(e) {
+    if (e.name === 'AbortError') {
+      // Conexión abortada — Telegram puede tener sesión abierta por hasta 10s
+      await new Promise(r => setTimeout(r, 12000));
+    } else {
+      console.error('[POLL] Error:', e.message);
+    }
+  }
 }
 
-// ── INICIO ────────────────────────────────────────────────────
+const PID_FILE = path.join(__dirname, 'bot.pid');
+
+function acquireLock() {
+  if (fs.existsSync(PID_FILE)) {
+    const existingPid = parseInt(fs.readFileSync(PID_FILE, 'utf8').trim(), 10);
+    try {
+      process.kill(existingPid, 0); // lanza si el proceso no existe
+      console.log(`[BOT] Instancia anterior (PID ${existingPid}) encontrada — terminándola...`);
+      process.kill(existingPid, 'SIGTERM');
+      // darle 1s para cerrar
+      const deadline = Date.now() + 1000;
+      while (Date.now() < deadline) {
+        try { process.kill(existingPid, 0); } catch(e) { break; }
+      }
+    } catch(e) {
+      console.log(`[BOT] PID file huérfano (${existingPid}), tomando lock.`);
+    }
+  }
+  fs.writeFileSync(PID_FILE, String(process.pid));
+  const cleanup = () => { try { fs.unlinkSync(PID_FILE); } catch(e) {} };
+  process.on('exit', cleanup);
+  process.on('SIGINT',  () => process.exit(0));
+  process.on('SIGTERM', () => process.exit(0));
+}
+
 async function main() {
-  console.log('════════════════════════════════════════════════');
-  console.log('🤖 ESBScout Bot v3.0');
-  console.log(`🎯 Ganador: diff≥${STRATEGY_GANADOR.diffMin}% wr≥${STRATEGY_GANADOR.wrMin}% forma≥${STRATEGY_GANADOR.formMin}%`);
-  console.log(`📊 Goles:   over%≥${STRATEGY_GOLES.overMin}% edge≥${STRATEGY_GOLES.edgeMin}% stdDev≤${STRATEGY_GOLES.stdDevMax}`);
-  console.log('════════════════════════════════════════════════');
+  acquireLock();
+  console.log('================================================');
+  console.log('ESBScout Bot v3.1');
+  console.log(`Ganador: diff>=${STRATEGY_GANADOR.diffMin}% wr>=${STRATEGY_GANADOR.wrMin}% forma>=${STRATEGY_GANADOR.formMin}%`);
+  console.log(`Goles:   solo Over ${STRATEGY_GOLES.maxLine} - ofensivo>=${STRATEGY_GOLES.ofensivoMin}% - piso>=${STRATEGY_GOLES.pisoMin}%`);
+  console.log('================================================');
 
   if (!BOT_TOKEN || !CHAT_ID) {
-    console.error('❌ Faltan TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID en .env');
+    console.error('Faltan TELEGRAM_BOT_TOKEN o TELEGRAM_CHAT_ID en .env');
     process.exit(1);
   }
 
+  // Borrar webhook para asegurar que getUpdates funcione
+  try {
+    const wh = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/deleteWebhook?drop_pending_updates=false`).then(r=>r.json());
+    if (wh.ok) console.log('[BOT] Webhook borrado OK - usando getUpdates');
+    else       console.warn('[BOT] No se pudo borrar webhook:', wh.description);
+  } catch(e) {
+    console.warn('[BOT] Error borrando webhook:', e.message);
+  }
+
   await sendTelegram([
-    `🤖 <b>ESBScout Bot v3.0 iniciado</b>`,
+    `🤖 <b>ESBScout Bot v3.1 iniciado</b>`,
     ``,
     `✅ Odds reales de Betsson integradas`,
     `🎯 Ganador: ALTA o MUY ALTA confianza`,
-    `📊 Goles: línea real de Betsson + edge calculado`,
+    `📊 Goles: solo Over 4.5, con jugador ofensivo`,
     ``,
-    `Comandos: /analizar /odds /resumen /status /limpiar`,
+    `Comandos: /analizar /odds /resumen /status /limpiar /bankroll`,
   ].join('\n'));
 
   await scan();
   cron.schedule(SCAN_CRON, scan);
-  cron.schedule(RESOLVE_CRON, resolveSignals);  // resolver resultados cada 5 min
-  setInterval(pollCommands, 3000);
+  cron.schedule(RESOLVE_CRON, resolveSignals);
+  (async () => {
+    while (true) {
+      await pollCommands();
+    }
+  })();
 }
 
 main();
